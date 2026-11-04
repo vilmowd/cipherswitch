@@ -1,3 +1,4 @@
+import Script from "next/script";
 import "./globals.css";
 import MobileNav from "../components/MobileNav";
 import AccessibilityWidget from "../components/AccessibilityWidget";
@@ -41,6 +42,15 @@ export default function RootLayout({ children }) {
           href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
+        <Script
+          src="https://www.googletagmanager.com/gtm.js?id=GTM-5Q3KJBX6"
+          strategy="beforeInteractive"
+        />
+        <Script id="google-tag" strategy="beforeInteractive">
+          {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());`}
+        </Script>
       </head>
       <body className="font-sans antialiased text-ink bg-white">
         <a href="#content" className="skip-link">
