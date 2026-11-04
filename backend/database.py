@@ -71,6 +71,13 @@ CREATE INDEX IF NOT EXISTS idx_vaults_status_next_ping
 CREATE INDEX IF NOT EXISTS idx_vaults_owner_access
     ON vaults (owner_access_token_hash);
 
+CREATE INDEX IF NOT EXISTS idx_vaults_owner_email
+    ON vaults (owner_email);
+
+CREATE TABLE IF NOT EXISTS email_locks (
+    email TEXT PRIMARY KEY
+);
+
 CREATE INDEX IF NOT EXISTS idx_recipients_vault
     ON recipients (vault_id);
 
@@ -130,6 +137,12 @@ CREATE TABLE IF NOT EXISTS recipients (
 
 CREATE INDEX IF NOT EXISTS idx_vaults_status_next_ping ON vaults (status, next_ping_due);
 CREATE INDEX IF NOT EXISTS idx_vaults_owner_access ON vaults (owner_access_token_hash);
+CREATE INDEX IF NOT EXISTS idx_vaults_owner_email ON vaults (owner_email);
+
+CREATE TABLE IF NOT EXISTS email_locks (
+    email TEXT PRIMARY KEY
+);
+
 CREATE INDEX IF NOT EXISTS idx_recipients_vault ON recipients (vault_id);
 CREATE INDEX IF NOT EXISTS idx_recipients_unlock ON recipients (unlock_token_hash);
 

@@ -333,19 +333,19 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-slate-200">
-        <Reveal className="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:px-8 sm:py-24 lg:grid-cols-2 lg:gap-20">
-          <div>
+        <Reveal className="mx-auto max-w-6xl px-4 py-16 sm:px-8 sm:py-24">
+          <div className="max-w-xl">
             <h2 className="max-w-sm text-4xl font-extrabold leading-[1.05] tracking-tight text-ink sm:text-5xl">
-              Free to seal. Pay when you add more.
+              One vault is free. The next one is paid.
             </h2>
             <p className="mt-4 max-w-md text-base leading-relaxed text-ink-soft">
-              A vault with one recipient is free. There is no subscription.
-              Each paid use is charged once, and the next use is charged again.
+              The first vault for an email is free. Each later vault from that
+              same email is $12, paid once. There is no subscription.
             </p>
           </div>
-          <div className="grid gap-8 sm:grid-cols-2">
+          <div className="mt-12 grid gap-8 sm:grid-cols-3">
             <div>
-              <p className="text-sm font-semibold text-sky">Free</p>
+              <p className="text-sm font-semibold text-sky">First vault</p>
               <h3 className="mt-2 text-3xl font-extrabold tracking-tight text-ink">$0</h3>
               <ul className="mt-4 divide-y divide-slate-200 border-y border-slate-200 text-sm text-ink">
                 <li className="py-3">One recipient</li>
@@ -355,13 +355,22 @@ export default function HomePage() {
               </ul>
             </div>
             <div>
-              <p className="text-sm font-semibold text-sky">One time, per use</p>
-              <h3 className="mt-2 text-3xl font-extrabold tracking-tight text-ink">$5</h3>
+              <p className="text-sm font-semibold text-sky">Comfort, once</p>
+              <h3 className="mt-2 text-3xl font-extrabold tracking-tight text-ink">$2–$5</h3>
               <ul className="mt-4 divide-y divide-slate-200 border-y border-slate-200 text-sm text-ink">
-                <li className="py-3">More than one recipient</li>
-                <li className="py-3">Encrypted files</li>
-                <li className="py-3">A time-lock date</li>
-                <li className="py-3">Travel mode</li>
+                <li className="py-3">Extra recipients · $3</li>
+                <li className="py-3">Encrypted files · $3</li>
+                <li className="py-3">A time-lock · $2</li>
+                <li className="py-3">Travel mode · $5</li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-sky">Another vault</p>
+              <h3 className="mt-2 text-3xl font-extrabold tracking-tight text-ink">$12</h3>
+              <ul className="mt-4 divide-y divide-slate-200 border-y border-slate-200 text-sm text-ink">
+                <li className="py-3">Same email, next vault</li>
+                <li className="py-3">Paid again for each one after that</li>
+                <li className="py-3">The email address alone does not open it</li>
               </ul>
             </div>
           </div>

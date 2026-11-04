@@ -146,10 +146,15 @@ async function expandKeys(master) {
   const macInput = concatBytes(TEXT_ENCODER.encode("ciphervault/mac/v2"), master);
   const aesRaw = new Uint8Array(await subtle.digest("SHA-256", aesInput));
   const macRaw = new Uint8Array(await subtle.digest("SHA-256", macInput));
-  return {
-    aesKey: await importAesKey(aesRaw),
-    hmacKey: await importHmacKey(macRaw),
-  };
+  try {
+    return {
+      aesKey: await importAesKey(aesRaw),
+      hmacKey: await importHmacKey(macRaw),
+    };
+  } finally {
+    aesRaw.fill(0);
+    macRaw.fill(0);
+  }
 }
 
 async function hmacSign(hmacKey, ...parts) {
@@ -202,7 +207,13 @@ export async function encryptVaultPayload(plaintextOrEnvelope, title, passphrase
   const titleIv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
 
   const master = await deriveMasterKey(passphrase, salt);
-  const { aesKey, hmacKey } = await expandKeys(master);
+  let aesKey;
+  let hmacKey;
+  try {
+    ({ aesKey, hmacKey } = await expandKeys(master));
+  } finally {
+    master.fill(0);
+  }
 
   const encryptedPayloadBuf = await subtle.encrypt(
     { name: "AES-GCM", iv: payloadIv },
@@ -266,7 +277,13 @@ export async function decryptVaultPayload({
     const macBytes = fromBase64(payloadMac);
 
     const master = await deriveMasterKey(passphrase, saltBytes);
-    const { aesKey, hmacKey } = await expandKeys(master);
+    let aesKey;
+    let hmacKey;
+    try {
+      ({ aesKey, hmacKey } = await expandKeys(master));
+    } finally {
+      master.fill(0);
+    }
 
     const macOk = await hmacVerify(
       hmacKey,

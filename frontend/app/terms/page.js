@@ -23,9 +23,10 @@ export default function TermsPage() {
         <p>
           You choose the contents, the passphrase, the schedule, and the
           recipients. You are responsible for keeping the passphrase, the
-          dashboard link, and the check-in link. Share the passphrase with a
-          recipient yourself. CipherSwitch does not send the passphrase by
-          email and cannot reset it.
+          dashboard code, and the check-in link. The dashboard opens with that
+          code, which is emailed to you. Your email address is not the code.
+          Share the passphrase with a recipient yourself. CipherSwitch does not
+          send the passphrase by email and cannot reset it.
         </p>
         <p>
           You confirm that you have the right to store and, if the vault
@@ -45,11 +46,13 @@ export default function TermsPage() {
       </LegalSection>
       <LegalSection title="Payments">
         <p>
-          A vault with one recipient and no extras is free. Adding more than
-          one recipient, files, a time-lock, or travel mode costs a one-time
-          fee for that use. The fee is charged again the next time you use
-          that feature, including turning travel mode on later. It is not a
-          subscription.
+          The first vault for an email, with one recipient and no extras, is
+          free. Extra recipients, files, a time-lock, and travel mode each have
+          their own one-time fee. None of those comfort fees is more than $5.
+          Each later vault from an email that already has one has a separate
+          one-time fee. A fee is charged again the next time you use that
+          feature, including turning travel mode on later or sealing another
+          vault. It is not a subscription.
         </p>
         <p>
           Card payments are processed by Stripe. CipherSwitch does not store

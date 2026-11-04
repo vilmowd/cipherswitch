@@ -29,8 +29,10 @@ export default function PrivacyPage() {
           <li>status, including when it was created, last checked in, or triggered</li>
         </ul>
         <p>
-          The raw tokens are shown to you and emailed so you can use the links.
-          The database keeps the hashes, not the tokens themselves.
+          Check-in and unlock tokens are emailed in links. The dashboard token
+          is a separate code, emailed to the owner and shown on the seal
+          confirmation. The email address is not that code. The database keeps
+          the hashes, not the tokens themselves.
         </p>
       </LegalSection>
       <LegalSection title="Why this data is used">

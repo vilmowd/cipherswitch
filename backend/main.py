@@ -378,23 +378,62 @@ def list_templates() -> TemplatesResponse:
 
 
 class CheckoutRequest(BaseModel):
-    purpose: Literal["premium_seal", "premium_travel"]
+    purpose: Literal["seal_fees", "premium_travel"]
     vault_id: Optional[str] = Field(default=None, max_length=64)
+    owner_email: Optional[EmailStr] = None
+    recipient_count: int = Field(default=1, ge=1, le=20)
+    has_attachments: bool = False
+    has_time_lock: bool = False
+    has_travel: bool = False
+
+
+class QuoteRequest(BaseModel):
+    owner_email: EmailStr
 
 
 @app.get("/api/billing")
 def billing_info() -> dict:
     return {
-        "price_cents": billing.price_cents(),
         "currency": "usd",
-        "label": billing.price_label(),
+        "fees": billing.catalog(),
+        "extra_label": billing.extra_vault_label(),
+        "label": billing.catalog()["travel"]["label"],
+    }
+
+
+@app.post("/api/billing/quote")
+def billing_quote(body: QuoteRequest) -> dict:
+    email = str(body.owner_email).lower()
+    extra = billing.email_has_vault(email)
+    return {
+        "extra_vault": extra,
+        "label": billing.extra_vault_label() if extra else billing.price_label(),
     }
 
 
 @app.post("/api/billing/checkout")
 def start_checkout(body: CheckoutRequest) -> dict:
-    url = billing.create_checkout(purpose=body.purpose, vault_id=body.vault_id)
-    return {"url": url, "label": billing.price_label()}
+    if body.purpose == "premium_travel":
+        url = billing.create_checkout(
+            purpose=billing.PURPOSE_TRAVEL,
+            vault_id=body.vault_id,
+        )
+        return {"url": url, "label": billing.catalog()["travel"]["label"]}
+    extra = False
+    if body.owner_email:
+        extra = billing.email_has_vault(str(body.owner_email).lower())
+    fees = billing.seal_fees(
+        extra_vault=extra,
+        recipient_count=body.recipient_count,
+        has_files=body.has_attachments,
+        has_time_lock=body.has_time_lock,
+        has_travel=body.has_travel,
+    )
+    if not fees:
+        raise HTTPException(status_code=400, detail="Nothing to pay for.")
+    url = billing.create_checkout(purpose="seal_fees", fees=fees)
+    total = sum(fee.cents for fee in fees)
+    return {"url": url, "label": billing._money(total)}
 
 
 @app.post(
@@ -403,12 +442,25 @@ def start_checkout(body: CheckoutRequest) -> dict:
     status_code=status.HTTP_201_CREATED,
 )
 def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
+    owner_email = str(body.owner_email).lower()
+    fees = billing.seal_fees(
+        extra_vault=billing.email_has_vault(owner_email),
+        recipient_count=len(body.recipients),
+        has_files=billing.payload_has_files(body),
+        has_time_lock=body.release_at is not None,
+        has_travel=body.travel_until is not None,
+    )
     paid_session = None
-    if billing.vault_needs_payment(body):
-        paid_session = billing.assert_payment_available(
-            body.checkout_session_id,
-            billing.PURPOSE_SEAL,
-        )
+    paid_amounts: dict[str, int] = {}
+    if fees:
+        paid_session, paid_amounts = billing.paid_fee_amounts(body.checkout_session_id)
+        missing = billing.missing_fees(fees, paid_amounts)
+        if missing:
+            names = ", ".join(fee.name for fee in missing)
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"Payment does not cover: {names}.",
+            )
     ping_hash = _hash_token(body.ping_token)
     owner_access = _new_token()
     owner_access_hash = _hash_token(owner_access)
@@ -450,7 +502,7 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
         body.travel_interval_days,
         1 if body.is_dry_run and db.is_sqlite() else body.is_dry_run,
         1 if body.has_attachments and db.is_sqlite() else body.has_attachments,
-        str(body.owner_email).lower(),
+        owner_email,
         ping_hash,
         owner_access_hash,
         _sql_val(now),
@@ -459,17 +511,45 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
     # For Postgres, omit explicit id if we want gen_random_uuid — we pass id for both.
     try:
         with db.get_cursor(commit=True) as cur:
+            cur.execute(
+                """
+                INSERT INTO email_locks (email) VALUES (%s)
+                ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+                """,
+                (owner_email,),
+            )
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM vaults WHERE owner_email = %s",
+                (owner_email,),
+            )
+            count_row = cur.fetchone()
+            already = int(count_row["n"] if count_row else 0) >= 1
+            live_fees = billing.seal_fees(
+                extra_vault=already,
+                recipient_count=len(body.recipients),
+                has_files=billing.payload_has_files(body),
+                has_time_lock=body.release_at is not None,
+                has_travel=body.travel_until is not None,
+            )
+            missing_now = billing.missing_fees(live_fees, paid_amounts)
+            if missing_now:
+                names = ", ".join(fee.name for fee in missing_now)
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail=f"Payment does not cover: {names}.",
+                )
+            charge = paid_session if live_fees else None
             cur.execute(insert_sql, params)
             row = cur.fetchone()
-            if paid_session:
+            if charge:
                 cur.execute(
                     """
                     INSERT INTO payments (session_id, purpose, vault_id, consumed_at)
                     VALUES (%s, %s, %s, %s)
                     """,
                     (
-                        paid_session,
-                        billing.PURPOSE_SEAL,
+                        charge,
+                        "seal_fees",
                         vault_id,
                         _sql_val(now),
                     ),
@@ -494,6 +574,8 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
                         rec.release_delay_days,
                     ),
                 )
+    except HTTPException:
+        raise
     except Exception as exc:
         if _is_unique_violation(exc):
             if paid_session and db.fetch_one(
@@ -553,7 +635,7 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
         owner_access_token=owner_access,
         dashboard_url_hint=dashboard_hint,
         message=(
-            "Vault sealed. Save your passphrase, dashboard link, and check-in link. "
+            "Vault sealed. Your dashboard code is on this screen and in your email. "
             + ("DRY-RUN vault — safe to test." if body.is_dry_run else "")
         ),
     )
@@ -646,24 +728,12 @@ def dashboard(access_token: str) -> DashboardResponse:
         """,
         (token_hash,),
     )
-    # owner_access is unique per vault — collect all vaults for same owner via email
     if not vaults:
         raise HTTPException(status_code=404, detail="Unknown dashboard access token")
 
     owner_email = vaults[0]["owner_email"]
-    all_vaults = db.fetch_all(
-        """
-        SELECT * FROM vaults
-        WHERE owner_email = %s
-        ORDER BY created_at DESC
-        """,
-        (owner_email,),
-    )
-
-    # Security: only allow listing if the access token matches at least one vault;
-    # still scope to that owner's email (token proves ownership of one vault → same email).
     out: list[DashboardVault] = []
-    for v in all_vaults:
+    for v in vaults:
         recs = db.fetch_all(
             """
             SELECT email, role, release_delay_days,

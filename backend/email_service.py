@@ -88,16 +88,23 @@ def send_vault_created_owner(
         f"Your vault is sealed{dry}",
         f"""
         <p>Vault <strong>{vault_id}</strong> is active. Check in every <strong>{interval_days}</strong> day(s). Next: <strong>{due}</strong>.</p>
-        <p><a href="{ping_url}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Check in</a></p>
+        <p>Your dashboard code is below. It is not your email address. The email address alone cannot open the dashboard.</p>
+        <p style="word-break:break-all;font-family:ui-monospace,monospace;font-size:13px;color:#1a1f2c;">{owner_access_token}</p>
         <p><a href="{dash}">Open your dashboard</a></p>
+        <p><a href="{ping_url}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Check in</a></p>
         <p style="word-break:break-all;font-size:12px;">{ping_url}</p>
         """,
     )
     return _send(
         to=owner_email,
-        subject="CipherSwitch — sealed + check-in link",
+        subject="CipherSwitch — dashboard code and check-in link",
         html=html,
-        text=f"Vault {vault_id} sealed. Check-in: {ping_url}\nDashboard: {dash}\n",
+        text=(
+            f"Vault {vault_id} sealed.\n"
+            f"Dashboard code (not your email address): {owner_access_token}\n"
+            f"Dashboard: {dash}\n"
+            f"Check-in: {ping_url}\n"
+        ),
     )
 
 

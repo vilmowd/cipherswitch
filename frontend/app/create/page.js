@@ -58,7 +58,15 @@ export default function CreateVaultPage() {
   const [pingToken, setPingToken] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [checkoutSessionId, setCheckoutSessionId] = useState("");
-  const [priceLabel, setPriceLabel] = useState("$5");
+  const [feeCents, setFeeCents] = useState({
+    recipients: 300,
+    files: 300,
+    time_lock: 200,
+    travel: 500,
+    extra_vault: 1200,
+  });
+  const [extraLabel, setExtraLabel] = useState("$12");
+  const [extraVault, setExtraVault] = useState(false);
   const [paidNote, setPaidNote] = useState(false);
 
   const strength = useMemo(() => scorePassphrase(passphrase), [passphrase]);
@@ -111,7 +119,16 @@ export default function CreateVaultPage() {
     fetch(`${API_BASE}/api/billing`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.label) setPriceLabel(data.label);
+        if (data?.extra_label) setExtraLabel(data.extra_label);
+        if (data?.fees) {
+          setFeeCents({
+            recipients: data.fees.recipients?.cents ?? 300,
+            files: data.fees.files?.cents ?? 300,
+            time_lock: data.fees.time_lock?.cents ?? 200,
+            travel: data.fees.travel?.cents ?? 500,
+            extra_vault: data.fees.extra_vault?.cents ?? 1200,
+          });
+        }
       })
       .catch(() => {});
   }, []);
@@ -126,6 +143,27 @@ export default function CreateVaultPage() {
     setTitle((current) => current || t.name);
     setIntervalDays((current) => current || t.suggested_interval_days);
   }, [templateId]);
+
+  useEffect(() => {
+    const email = ownerEmail.trim().toLowerCase();
+    if (!email.includes("@")) {
+      setExtraVault(false);
+      return undefined;
+    }
+    const handle = setTimeout(() => {
+      fetch(`${API_BASE}/api/billing/quote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner_email: email }),
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data) setExtraVault(Boolean(data.extra_vault));
+        })
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [ownerEmail]);
 
   function updateRecipient(index, patch) {
     setRecipients((prev) =>
@@ -152,12 +190,19 @@ export default function CreateVaultPage() {
     return null;
   }
 
-  const premiumReasons = [];
-  if (recipients.length > 1) premiumReasons.push("more than one recipient");
-  if (files.length) premiumReasons.push("attachments");
-  if (releaseAt) premiumReasons.push("a time-lock");
-  if (travelUntil) premiumReasons.push("travel mode");
-  const needsPayment = premiumReasons.length > 0 && !checkoutSessionId;
+  function money(cents) {
+    return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
+  }
+
+  const selectedFees = [];
+  if (extraVault) selectedFees.push({ name: "Another vault", cents: feeCents.extra_vault });
+  if (recipients.length > 1) selectedFees.push({ name: "Extra recipients", cents: feeCents.recipients });
+  if (files.length) selectedFees.push({ name: "Encrypted files", cents: feeCents.files });
+  if (releaseAt) selectedFees.push({ name: "Time-lock", cents: feeCents.time_lock });
+  if (travelUntil) selectedFees.push({ name: "Travel mode", cents: feeCents.travel });
+  const totalCents = selectedFees.reduce((sum, fee) => sum + fee.cents, 0);
+  const payLabel = money(totalCents);
+  const needsPayment = totalCents > 0 && !checkoutSessionId;
 
   function saveDraft() {
     sessionStorage.setItem(
@@ -193,13 +238,39 @@ export default function CreateVaultPage() {
     }
 
     try {
-      if (needsPayment) {
+      let anotherVault = extraVault;
+      if (ownerEmail.includes("@")) {
+        const quote = await fetch(`${API_BASE}/api/billing/quote`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ owner_email: ownerEmail.trim().toLowerCase() }),
+        });
+        const quoteData = await quote.json().catch(() => ({}));
+        if (quote.ok) {
+          anotherVault = Boolean(quoteData.extra_vault);
+          setExtraVault(anotherVault);
+        }
+      }
+      const due = [];
+      if (anotherVault) due.push(feeCents.extra_vault);
+      if (recipients.length > 1) due.push(feeCents.recipients);
+      if (files.length) due.push(feeCents.files);
+      if (releaseAt) due.push(feeCents.time_lock);
+      if (travelUntil) due.push(feeCents.travel);
+      if (due.length > 0 && !checkoutSessionId) {
         saveDraft();
         setStep("uploading");
         const checkout = await fetch(`${API_BASE}/api/billing/checkout`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ purpose: "premium_seal" }),
+          body: JSON.stringify({
+            purpose: "seal_fees",
+            owner_email: ownerEmail.trim().toLowerCase(),
+            recipient_count: recipients.length,
+            has_attachments: files.length > 0,
+            has_time_lock: Boolean(releaseAt),
+            has_travel: Boolean(travelUntil),
+          }),
         });
         const checkoutData = await checkout.json().catch(() => ({}));
         if (!checkout.ok || !checkoutData.url) {
@@ -331,8 +402,14 @@ export default function CreateVaultPage() {
           </div>
 
           <div>
-            <p className="label">Dashboard</p>
-            <p className="break-anywhere rounded-2xl bg-sky-mist p-3 font-mono text-xs text-sky-deep">
+            <p className="label">Dashboard code</p>
+            <p className="mb-2 text-sm text-ink-soft">
+              This code was emailed to you. Your email address does not open the dashboard.
+            </p>
+            <p className="break-anywhere rounded-2xl bg-sky-mist p-3 font-mono text-xs text-ink">
+              {result.owner_access_token}
+            </p>
+            <p className="mt-2 break-anywhere rounded-2xl bg-sky-mist p-3 font-mono text-xs text-sky-deep">
               {dashUrl}
             </p>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -342,9 +419,9 @@ export default function CreateVaultPage() {
               <button
                 type="button"
                 className="btn-ghost w-full !py-2 text-sm sm:w-auto"
-                onClick={() => navigator.clipboard.writeText(dashUrl)}
+                onClick={() => navigator.clipboard.writeText(result.owner_access_token)}
               >
-                Copy
+                Copy code
               </button>
             </div>
           </div>
@@ -439,7 +516,7 @@ export default function CreateVaultPage() {
           </div>
 
           <div>
-            <label className="label" htmlFor="files">Attachments (encrypted) · {priceLabel} once</label>
+            <label className="label" htmlFor="files">Attachments (encrypted) · {money(feeCents.files)} once</label>
             <input
               id="files"
               type="file"
@@ -473,11 +550,16 @@ export default function CreateVaultPage() {
           <div>
             <label className="label" htmlFor="owner">Your email</label>
             <input id="owner" type="email" className="field" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} disabled={busy} />
+            {extraVault ? (
+              <p className="mt-2 text-sm text-ink-soft">
+                This email already has a vault. Another one is {extraLabel}, paid once.
+              </p>
+            ) : null}
           </div>
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <p className="label !mb-0">Recipients · extra people are {priceLabel} once</p>
+              <p className="label !mb-0">Recipients · extra people are {money(feeCents.recipients)} once</p>
               <button
                 type="button"
                 className="text-xs font-bold text-sky"
@@ -549,14 +631,14 @@ export default function CreateVaultPage() {
               <input id="grace" type="number" min={0} className="field" value={graceDays} onChange={(e) => setGraceDays(e.target.value)} disabled={busy} />
             </div>
             <div>
-              <label className="label" htmlFor="release">Time-lock (optional) · {priceLabel} once</label>
+              <label className="label" htmlFor="release">Time-lock (optional) · {money(feeCents.time_lock)} once</label>
               <input id="release" type="datetime-local" className="field" value={releaseAt} onChange={(e) => setReleaseAt(e.target.value)} disabled={busy} />
             </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="label" htmlFor="travel">Travel until (optional) · {priceLabel} once</label>
+              <label className="label" htmlFor="travel">Travel until (optional) · {money(feeCents.travel)} once</label>
               <input id="travel" type="datetime-local" className="field" value={travelUntil} onChange={(e) => setTravelUntil(e.target.value)} disabled={busy} />
             </div>
             <div>
@@ -577,7 +659,7 @@ export default function CreateVaultPage() {
 
           {needsPayment ? (
             <p className="text-sm text-ink-soft">
-              This seal includes {premiumReasons.join(", ")}. One payment of {priceLabel} covers this vault only. The next time you use any of these, you pay again. A vault with one recipient and no extras stays free. Files and the passphrase are not kept through checkout, so attach the files again and re-enter the passphrase after you pay.
+              This seal adds {selectedFees.map((fee) => `${fee.name} (${money(fee.cents)})`).join(", ")}. One payment of {payLabel} covers this vault only. Each of these is charged again the next time you use it. Files and the passphrase are not kept through checkout, so attach the files again and re-enter the passphrase after you pay.
             </p>
           ) : null}
           {paidNote && checkoutSessionId ? (
@@ -599,7 +681,7 @@ export default function CreateVaultPage() {
           ) : null}
 
           <button type="submit" className="btn-primary w-full sm:w-auto" disabled={busy}>
-            {busy ? "Working…" : needsPayment ? `Pay ${priceLabel} and seal` : "Encrypt & seal"}
+            {busy ? "Working…" : needsPayment ? `Pay ${payLabel} and seal` : "Encrypt & seal"}
           </button>
         </form>
       )}

@@ -16,9 +16,13 @@ export default function DashboardPage() {
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async (access) => {
-    const t = (access || token).trim();
+    const raw = (access || token).trim();
+    const fromLink = raw.includes("#")
+      ? new URLSearchParams(raw.split("#")[1] || "").get("access")
+      : "";
+    const t = (fromLink || raw).trim();
     if (t.length < 32) {
-      setError("Paste your dashboard access token (from create email / success screen).");
+      setError("Paste the dashboard code from your seal email.");
       return;
     }
     setBusy(true);
@@ -179,7 +183,7 @@ export default function DashboardPage() {
               className="field"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              placeholder="From your seal confirmation or email"
+              placeholder="Code from your seal email"
             />
           </div>
           {error ? (
@@ -304,7 +308,7 @@ export default function DashboardPage() {
                     onClick={() => enableTravel(v.vault_id)}
                     disabled={busy}
                   >
-                    Travel mode · paid once
+                    Travel mode · $5 once
                   </button>
                 ) : null}
                 {v.is_dry_run && v.status !== "TRIGGERED" ? (
