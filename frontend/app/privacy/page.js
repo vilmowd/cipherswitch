@@ -59,8 +59,8 @@ export default function PrivacyPage() {
         </ul>
         <p>
           Email addresses are used because you asked the service to contact
-          those people about that vault. The service does not sell personal
-          information and does not use it for advertising.
+          those people about that vault. CipherSwitch does not sell personal
+          information.
         </p>
       </LegalSection>
       <LegalSection title="Email delivery">
@@ -79,6 +79,13 @@ export default function PrivacyPage() {
           the checkout id, the kind of purchase, and the vault it was used for.
           It does not store the card number.
         </p>
+        <p>
+          The contact page sends the first name, last name, email address, and
+          message you type. That message is emailed through Resend to the
+          operator of this deployment. It is not stored in a vault and it is
+          not added to the vault database. Resend’s own terms and privacy
+          notice apply to that delivery.
+        </p>
       </LegalSection>
       <LegalSection title="Links, logs, and this browser">
         <p>
@@ -92,8 +99,15 @@ export default function PrivacyPage() {
         <p>
           Accessibility choices are saved in local storage on your device under
           the key <span className="font-mono text-ink">cipherswitch-a11y</span>.
-          They are not sent to the server. The site does not set advertising
-          cookies and does not run a third-party analytics tracker.
+          They are not sent to the server.
+        </p>
+        <p>
+          Every page loads Google Tag Manager. Google can receive page and
+          device information, and the tags turned on in that container can set
+          cookies and send usage data to Google. Google’s own terms and privacy
+          notice apply to that collection. A Search Console verification tag
+          is also present so Google can confirm who controls the site. That
+          verification tag does not collect a message or a vault.
         </p>
       </LegalSection>
       <LegalSection title="How long it is kept">
@@ -109,11 +123,13 @@ export default function PrivacyPage() {
       </LegalSection>
       <LegalSection title="Who it is shared with">
         <p>
-          Data is shared with the email provider when email is enabled, and
-          with people you named when the service sends them a link or a notice.
-          It can also be shared if the law requires the operator to disclose it.
-          The operator does not otherwise hand the vault database to other
-          companies.
+          Vault records are shared with the email provider when email is
+          enabled, and with people you named when the service sends them a
+          link or a notice. A contact-form message is shared with Resend so it
+          can be delivered to the operator. Page and device data collected by
+          Google Tag Manager is shared with Google. Data can also be shared if
+          the law requires the operator to disclose it. The operator does not
+          otherwise hand the vault database to other companies.
         </p>
       </LegalSection>
       <LegalSection title="Children">
@@ -125,11 +141,12 @@ export default function PrivacyPage() {
       <LegalSection title="Your choices">
         <p>
           You can stop using the service, stop checking in, and avoid sending
-          further email addresses. Depending on where you live, you may have
-          rights to access, correct, or delete personal information, or to
-          object to certain uses. Those requests are made to the operator of
-          the CipherSwitch deployment you used, because this software does not
-          publish a separate company address.
+          further email addresses. You can choose not to use the contact page.
+          Depending on where you live, you may have rights to access, correct,
+          or delete personal information, or to object to certain uses. Those
+          requests can be sent through the contact page to the operator of the
+          CipherSwitch deployment you used. The page does not publish a
+          separate company address.
         </p>
         <p>
           Where the European data-protection rules apply, the operator of that
