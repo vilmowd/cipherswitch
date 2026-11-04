@@ -12,7 +12,7 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY database.py main.py worker.py email_service.py ./
+COPY database.py main.py worker.py email_service.py billing.py ./
 
 EXPOSE 8000
 

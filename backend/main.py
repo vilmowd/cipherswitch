@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
+import billing
 import database as db
 import email_service
 
@@ -69,6 +70,7 @@ class VaultCreateRequest(BaseModel):
     travel_interval_days: Optional[int] = Field(default=None, ge=1, le=3650)
     is_dry_run: bool = False
     has_attachments: bool = False
+    checkout_session_id: Optional[str] = Field(default=None, max_length=255)
 
     @field_validator(
         "encrypted_title",
@@ -169,6 +171,7 @@ class TravelRequest(BaseModel):
     owner_access_token: str = Field(..., min_length=32, max_length=128)
     travel_until: datetime
     travel_interval_days: int = Field(..., ge=1, le=3650)
+    checkout_session_id: str = Field(..., min_length=8, max_length=255)
 
 
 class DryRunTriggerRequest(BaseModel):
@@ -374,12 +377,38 @@ def list_templates() -> TemplatesResponse:
     return TemplatesResponse(templates=catalog)
 
 
+class CheckoutRequest(BaseModel):
+    purpose: Literal["premium_seal", "premium_travel"]
+    vault_id: Optional[str] = Field(default=None, max_length=64)
+
+
+@app.get("/api/billing")
+def billing_info() -> dict:
+    return {
+        "price_cents": billing.price_cents(),
+        "currency": "usd",
+        "label": billing.price_label(),
+    }
+
+
+@app.post("/api/billing/checkout")
+def start_checkout(body: CheckoutRequest) -> dict:
+    url = billing.create_checkout(purpose=body.purpose, vault_id=body.vault_id)
+    return {"url": url, "label": billing.price_label()}
+
+
 @app.post(
     "/api/vaults/create",
     response_model=VaultCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
+    paid_session = None
+    if billing.vault_needs_payment(body):
+        paid_session = billing.assert_payment_available(
+            body.checkout_session_id,
+            billing.PURPOSE_SEAL,
+        )
     ping_hash = _hash_token(body.ping_token)
     owner_access = _new_token()
     owner_access_hash = _hash_token(owner_access)
@@ -432,6 +461,19 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
         with db.get_cursor(commit=True) as cur:
             cur.execute(insert_sql, params)
             row = cur.fetchone()
+            if paid_session:
+                cur.execute(
+                    """
+                    INSERT INTO payments (session_id, purpose, vault_id, consumed_at)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (
+                        paid_session,
+                        billing.PURPOSE_SEAL,
+                        vault_id,
+                        _sql_val(now),
+                    ),
+                )
             for rec in body.recipients:
                 rid = db.new_id()
                 unlock_hash = (
@@ -454,6 +496,14 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
                 )
     except Exception as exc:
         if _is_unique_violation(exc):
+            if paid_session and db.fetch_one(
+                "SELECT session_id FROM payments WHERE session_id = %s",
+                (paid_session,),
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail="That payment was already used. Pay again to use this feature again.",
+                ) from exc
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Token collision. Retry.",
@@ -674,25 +724,51 @@ def enable_travel(vault_id: UUID, body: TravelRequest) -> dict:
     if until <= _utcnow():
         raise HTTPException(status_code=400, detail="travel_until must be in the future")
 
+    paid_session = billing.assert_payment_available(
+        body.checkout_session_id,
+        billing.PURPOSE_TRAVEL,
+        str(vault_id),
+    )
     now = _utcnow()
     next_due = now + timedelta(days=body.travel_interval_days)
-    db.execute(
-        """
-        UPDATE vaults
-        SET travel_until = %s,
-            travel_interval_days = %s,
-            next_ping_due = %s,
-            status = 'ACTIVE',
-            grace_started_at = NULL
-        WHERE id = %s
-        """,
-        (
-            _sql_val(until),
-            body.travel_interval_days,
-            _sql_val(next_due),
-            str(vault_id),
-        ),
-    )
+    try:
+        with db.get_cursor(commit=True) as cur:
+            cur.execute(
+                """
+                UPDATE vaults
+                SET travel_until = %s,
+                    travel_interval_days = %s,
+                    next_ping_due = %s,
+                    status = 'ACTIVE',
+                    grace_started_at = NULL
+                WHERE id = %s
+                """,
+                (
+                    _sql_val(until),
+                    body.travel_interval_days,
+                    _sql_val(next_due),
+                    str(vault_id),
+                ),
+            )
+            cur.execute(
+                """
+                INSERT INTO payments (session_id, purpose, vault_id, consumed_at)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (
+                    paid_session,
+                    billing.PURPOSE_TRAVEL,
+                    str(vault_id),
+                    _sql_val(now),
+                ),
+            )
+    except Exception as exc:
+        if _is_unique_violation(exc):
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="That payment was already used. Pay again to turn travel mode on again.",
+            ) from exc
+        raise
     return {
         "vault_id": str(vault_id),
         "travel_until": until.isoformat(),

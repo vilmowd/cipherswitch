@@ -333,6 +333,42 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-slate-200">
+        <Reveal className="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:px-8 sm:py-24 lg:grid-cols-2 lg:gap-20">
+          <div>
+            <h2 className="max-w-sm text-4xl font-extrabold leading-[1.05] tracking-tight text-ink sm:text-5xl">
+              Free to seal. Pay when you add more.
+            </h2>
+            <p className="mt-4 max-w-md text-base leading-relaxed text-ink-soft">
+              A vault with one recipient is free. There is no subscription.
+              Each paid use is charged once, and the next use is charged again.
+            </p>
+          </div>
+          <div className="grid gap-8 sm:grid-cols-2">
+            <div>
+              <p className="text-sm font-semibold text-sky">Free</p>
+              <h3 className="mt-2 text-3xl font-extrabold tracking-tight text-ink">$0</h3>
+              <ul className="mt-4 divide-y divide-slate-200 border-y border-slate-200 text-sm text-ink">
+                <li className="py-3">One recipient</li>
+                <li className="py-3">Encrypted message</li>
+                <li className="py-3">Check-ins and a grace period</li>
+                <li className="py-3">A dry-run test</li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-sky">One time, per use</p>
+              <h3 className="mt-2 text-3xl font-extrabold tracking-tight text-ink">$5</h3>
+              <ul className="mt-4 divide-y divide-slate-200 border-y border-slate-200 text-sm text-ink">
+                <li className="py-3">More than one recipient</li>
+                <li className="py-3">Encrypted files</li>
+                <li className="py-3">A time-lock date</li>
+                <li className="py-3">Travel mode</li>
+              </ul>
+            </div>
+          </div>
+        </Reveal>
+      </section>
+
+      <section className="border-t border-slate-200">
         <Reveal className="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:px-8 sm:py-24 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20">
           <div>
             <h2 className="max-w-sm text-4xl font-extrabold leading-[1.05] tracking-tight text-ink sm:text-5xl">

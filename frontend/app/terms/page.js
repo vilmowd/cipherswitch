@@ -43,6 +43,23 @@ export default function TermsPage() {
           check-in can also be a mistake. Build the schedule with that in mind.
         </p>
       </LegalSection>
+      <LegalSection title="Payments">
+        <p>
+          A vault with one recipient and no extras is free. Adding more than
+          one recipient, files, a time-lock, or travel mode costs a one-time
+          fee for that use. The fee is charged again the next time you use
+          that feature, including turning travel mode on later. It is not a
+          subscription.
+        </p>
+        <p>
+          Card payments are processed by Stripe. CipherSwitch does not store
+          the card number. A paid checkout can be used once. If the vault is
+          not sealed after payment, that checkout can still be used for the
+          same action until it is used. Except where the law requires a
+          refund, the fee is for the attempt to use the feature and is not
+          returned because a passphrase was lost or a check-in was missed.
+        </p>
+      </LegalSection>
       <LegalSection title="Acceptable use">
         <p>You may not use CipherSwitch to:</p>
         <ul className="list-disc space-y-1 pl-5">

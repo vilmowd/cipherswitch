@@ -50,10 +50,54 @@ export default function DashboardPage() {
   }, [token]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const travelPaid = params.get("travel_paid");
+    const travelCanceled = params.get("travel_canceled");
     const fromHash = parseHashParam("access");
     if (fromHash) {
       setToken(fromHash);
       load(fromHash);
+    }
+    if (travelCanceled) {
+      setNotice("Payment canceled. Travel mode was not turned on.");
+    }
+    if (travelPaid) {
+      const raw = sessionStorage.getItem("cipherswitch-travel");
+      sessionStorage.removeItem("cipherswitch-travel");
+      if (!raw) {
+        setError("Payment received, but the travel details were missing. Pay again to turn it on.");
+      } else {
+        const pending = JSON.parse(raw);
+        setToken(pending.token || "");
+        setBusy(true);
+        fetch(`${API_BASE}/api/vaults/${pending.vaultId}/travel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            owner_access_token: pending.token,
+            travel_until: new Date(pending.until).toISOString(),
+            travel_interval_days: Number(pending.days),
+            checkout_session_id: travelPaid,
+          }),
+        })
+          .then(async (res) => {
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              throw new Error(
+                typeof json.detail === "string" ? json.detail : "Travel mode failed"
+              );
+            }
+            setNotice(json.message || "Travel mode enabled");
+            await load(pending.token);
+          })
+          .catch((err) => {
+            setError(err instanceof Error ? err.message : "Error");
+          })
+          .finally(() => setBusy(false));
+      }
+    }
+    if (travelPaid || travelCanceled) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -64,23 +108,26 @@ export default function DashboardPage() {
     const days = Number(prompt("Travel interval days (e.g. 30):", "30"));
     if (!days) return;
     setBusy(true);
+    setError("");
     try {
-      const res = await fetch(`${API_BASE}/api/vaults/${vaultId}/travel`, {
+      sessionStorage.setItem(
+        "cipherswitch-travel",
+        JSON.stringify({ vaultId, until, days, token })
+      );
+      const res = await fetch(`${API_BASE}/api/billing/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          owner_access_token: token,
-          travel_until: new Date(until).toISOString(),
-          travel_interval_days: days,
-        }),
+        body: JSON.stringify({ purpose: "premium_travel", vault_id: vaultId }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.detail || "Travel mode failed");
-      setNotice(json.message || "Travel mode enabled");
-      await load(token);
+      if (!res.ok || !json.url) {
+        throw new Error(
+          typeof json.detail === "string" ? json.detail : "Could not start checkout"
+        );
+      }
+      window.location.assign(json.url);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
-    } finally {
       setBusy(false);
     }
   }
@@ -257,7 +304,7 @@ export default function DashboardPage() {
                     onClick={() => enableTravel(v.vault_id)}
                     disabled={busy}
                   >
-                    Travel mode
+                    Travel mode · paid once
                   </button>
                 ) : null}
                 {v.is_dry_run && v.status !== "TRIGGERED" ? (

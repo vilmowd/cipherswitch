@@ -56,6 +56,12 @@ export default function PrivacyPage() {
           privacy notice apply to that delivery. If no email key is configured,
           those messages are not sent.
         </p>
+        <p>
+          One-time payments are processed by Stripe. Stripe receives the card
+          details and the billing details the payer enters. CipherSwitch stores
+          the checkout id, the kind of purchase, and the vault it was used for.
+          It does not store the card number.
+        </p>
       </LegalSection>
       <LegalSection title="Links, logs, and this browser">
         <p>

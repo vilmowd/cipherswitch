@@ -15,6 +15,7 @@ import {
 } from "../../utils/crypto";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const DRAFT_KEY = "cipherswitch-seal-draft";
 
 const emptyRecipient = (role = "primary") => ({
   email: "",
@@ -56,18 +57,74 @@ export default function CreateVaultPage() {
   const [result, setResult] = useState(null);
   const [pingToken, setPingToken] = useState("");
   const [showPass, setShowPass] = useState(false);
+  const [checkoutSessionId, setCheckoutSessionId] = useState("");
+  const [priceLabel, setPriceLabel] = useState("$5");
+  const [paidNote, setPaidNote] = useState(false);
 
   const strength = useMemo(() => scorePassphrase(passphrase), [passphrase]);
   const busy = step === "encrypting" || step === "uploading";
 
   useEffect(() => {
-    const t = VAULT_TEMPLATES.find((x) => x.id === templateId);
-    if (t) {
-      setIntervalDays(t.suggested_interval_days);
-      if (!title) setTitle(t.name);
-      setMessage(t.placeholder || message);
+    const params = new URLSearchParams(window.location.search);
+    const paid = params.get("paid");
+    const canceled = params.get("canceled");
+    if (paid || canceled) {
+      const raw = sessionStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        try {
+          const draft = JSON.parse(raw);
+          if (draft.templateId) setTemplateId(draft.templateId);
+          if (typeof draft.title === "string") setTitle(draft.title);
+          if (typeof draft.message === "string") setMessage(draft.message);
+          if (typeof draft.ownerEmail === "string") setOwnerEmail(draft.ownerEmail);
+          if (draft.intervalDays) setIntervalDays(draft.intervalDays);
+          if (draft.graceDays !== undefined) setGraceDays(draft.graceDays);
+          if (typeof draft.releaseAt === "string") setReleaseAt(draft.releaseAt);
+          if (typeof draft.travelUntil === "string") setTravelUntil(draft.travelUntil);
+          if (draft.travelIntervalDays) setTravelIntervalDays(draft.travelIntervalDays);
+          if (typeof draft.isDryRun === "boolean") setIsDryRun(draft.isDryRun);
+          if (Array.isArray(draft.recipients) && draft.recipients.length) {
+            setRecipients(
+              draft.recipients.map((r) => ({
+                ...emptyRecipient(r.role || "primary"),
+                email: r.email || "",
+                role: r.role || "primary",
+                release_delay_days: r.release_delay_days || 0,
+                unlock_token:
+                  r.role === "witness" ? "" : generateSecureToken(32),
+              }))
+            );
+          }
+        } catch {
+          /* ignore a broken draft */
+        }
+      }
+      if (paid) {
+        setCheckoutSessionId(paid);
+        setPaidNote(true);
+      }
+      if (canceled) {
+        setError("Payment canceled. The vault was not sealed.");
+      }
+      window.history.replaceState(null, "", "/create");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetch(`${API_BASE}/api/billing`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.label) setPriceLabel(data.label);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const t = VAULT_TEMPLATES.find((x) => x.id === templateId);
+    if (!t) return;
+    const placeholders = VAULT_TEMPLATES.map((item) => item.placeholder || "");
+    setMessage((current) =>
+      !current || placeholders.includes(current) ? t.placeholder || "" : current
+    );
+    setTitle((current) => current || t.name);
+    setIntervalDays((current) => current || t.suggested_interval_days);
   }, [templateId]);
 
   function updateRecipient(index, patch) {
@@ -95,6 +152,36 @@ export default function CreateVaultPage() {
     return null;
   }
 
+  const premiumReasons = [];
+  if (recipients.length > 1) premiumReasons.push("more than one recipient");
+  if (files.length) premiumReasons.push("attachments");
+  if (releaseAt) premiumReasons.push("a time-lock");
+  if (travelUntil) premiumReasons.push("travel mode");
+  const needsPayment = premiumReasons.length > 0 && !checkoutSessionId;
+
+  function saveDraft() {
+    sessionStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        templateId,
+        title,
+        message,
+        ownerEmail,
+        intervalDays,
+        graceDays,
+        releaseAt,
+        travelUntil,
+        travelIntervalDays,
+        isDryRun,
+        recipients: recipients.map((r) => ({
+          email: r.email,
+          role: r.role,
+          release_delay_days: r.release_delay_days,
+        })),
+      })
+    );
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
@@ -106,6 +193,26 @@ export default function CreateVaultPage() {
     }
 
     try {
+      if (needsPayment) {
+        saveDraft();
+        setStep("uploading");
+        const checkout = await fetch(`${API_BASE}/api/billing/checkout`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ purpose: "premium_seal" }),
+        });
+        const checkoutData = await checkout.json().catch(() => ({}));
+        if (!checkout.ok || !checkoutData.url) {
+          throw new Error(
+            typeof checkoutData.detail === "string"
+              ? checkoutData.detail
+              : "Could not start checkout"
+          );
+        }
+        window.location.assign(checkoutData.url);
+        return;
+      }
+
       setStep("encrypting");
       const attachments = [];
       for (const f of files) {
@@ -154,6 +261,7 @@ export default function CreateVaultPage() {
           travel_interval_days: travelUntil ? Number(travelIntervalDays) : null,
           is_dry_run: isDryRun,
           has_attachments: attachments.length > 0,
+          checkout_session_id: checkoutSessionId || null,
         }),
       });
 
@@ -168,6 +276,7 @@ export default function CreateVaultPage() {
         throw new Error(detail);
       }
 
+      sessionStorage.removeItem(DRAFT_KEY);
       setPingToken(nextPing);
       setResult({ ...data, recipients: preparedRecipients });
       setSplitShares(splitPassphrase(passphrase));
@@ -330,7 +439,7 @@ export default function CreateVaultPage() {
           </div>
 
           <div>
-            <label className="label" htmlFor="files">Attachments (encrypted)</label>
+            <label className="label" htmlFor="files">Attachments (encrypted) · {priceLabel} once</label>
             <input
               id="files"
               type="file"
@@ -368,7 +477,7 @@ export default function CreateVaultPage() {
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <p className="label !mb-0">Recipients</p>
+              <p className="label !mb-0">Recipients · extra people are {priceLabel} once</p>
               <button
                 type="button"
                 className="text-xs font-bold text-sky"
@@ -440,14 +549,14 @@ export default function CreateVaultPage() {
               <input id="grace" type="number" min={0} className="field" value={graceDays} onChange={(e) => setGraceDays(e.target.value)} disabled={busy} />
             </div>
             <div>
-              <label className="label" htmlFor="release">Time-lock (optional)</label>
+              <label className="label" htmlFor="release">Time-lock (optional) · {priceLabel} once</label>
               <input id="release" type="datetime-local" className="field" value={releaseAt} onChange={(e) => setReleaseAt(e.target.value)} disabled={busy} />
             </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="label" htmlFor="travel">Travel until (optional)</label>
+              <label className="label" htmlFor="travel">Travel until (optional) · {priceLabel} once</label>
               <input id="travel" type="datetime-local" className="field" value={travelUntil} onChange={(e) => setTravelUntil(e.target.value)} disabled={busy} />
             </div>
             <div>
@@ -466,6 +575,17 @@ export default function CreateVaultPage() {
             Dry-run mode — safe to force-trigger from the dashboard for testing
           </label>
 
+          {needsPayment ? (
+            <p className="text-sm text-ink-soft">
+              This seal includes {premiumReasons.join(", ")}. One payment of {priceLabel} covers this vault only. The next time you use any of these, you pay again. A vault with one recipient and no extras stays free. Files and the passphrase are not kept through checkout, so attach the files again and re-enter the passphrase after you pay.
+            </p>
+          ) : null}
+          {paidNote && checkoutSessionId ? (
+            <p className="text-sm text-ink">
+              Payment received for this seal. Re-enter the passphrase, attach any files again, then seal.
+            </p>
+          ) : null}
+
           {error ? (
             <div role="alert" className="rounded-2xl px-4 py-3 text-sm status-err">
               {error}
@@ -479,7 +599,7 @@ export default function CreateVaultPage() {
           ) : null}
 
           <button type="submit" className="btn-primary w-full sm:w-auto" disabled={busy}>
-            {busy ? "Working…" : "Encrypt & seal"}
+            {busy ? "Working…" : needsPayment ? `Pay ${priceLabel} and seal` : "Encrypt & seal"}
           </button>
         </form>
       )}

@@ -76,6 +76,13 @@ CREATE INDEX IF NOT EXISTS idx_recipients_vault
 
 CREATE INDEX IF NOT EXISTS idx_recipients_unlock
     ON recipients (unlock_token_hash);
+
+CREATE TABLE IF NOT EXISTS payments (
+    session_id   TEXT PRIMARY KEY,
+    purpose      TEXT NOT NULL,
+    vault_id     TEXT,
+    consumed_at  TIMESTAMPTZ NOT NULL
+);
 """
 
 SQLITE_SCHEMA_SQL = """
@@ -125,6 +132,13 @@ CREATE INDEX IF NOT EXISTS idx_vaults_status_next_ping ON vaults (status, next_p
 CREATE INDEX IF NOT EXISTS idx_vaults_owner_access ON vaults (owner_access_token_hash);
 CREATE INDEX IF NOT EXISTS idx_recipients_vault ON recipients (vault_id);
 CREATE INDEX IF NOT EXISTS idx_recipients_unlock ON recipients (unlock_token_hash);
+
+CREATE TABLE IF NOT EXISTS payments (
+    session_id   TEXT PRIMARY KEY,
+    purpose      TEXT NOT NULL,
+    vault_id     TEXT,
+    consumed_at  TEXT NOT NULL
+);
 """
 
 
