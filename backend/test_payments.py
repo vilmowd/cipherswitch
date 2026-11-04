@@ -134,6 +134,7 @@ class PaymentChecks(unittest.TestCase):
         amounts = [item["price_data"]["unit_amount"] for item in captured["line_items"]]
         self.assertEqual(amounts, [300, 500])
         self.assertEqual(captured["metadata"]["purpose"], "seal_fees")
+        self.assertNotIn("vault_id", captured["metadata"])
 
     def test_travel_checkout_returns_to_the_same_vault(self):
         captured = {}
@@ -147,7 +148,59 @@ class PaymentChecks(unittest.TestCase):
         self.assertIn(f"vault={VAULT}", captured["success_url"])
         self.assertIn("{CHECKOUT_SESSION_ID}", captured["success_url"])
         self.assertEqual(captured["metadata"]["purpose"], "premium_travel")
+        self.assertEqual(captured["metadata"]["vault_id"], VAULT)
         self.assertEqual(captured["line_items"][0]["price_data"]["unit_amount"], 500)
+
+    def test_a_paid_session_without_a_currency_field_still_counts(self):
+        import stripe
+
+        fake = stripe.checkout.Session.construct_from(
+            {
+                "id": "cs_test_paid",
+                "object": "checkout.session",
+                "payment_status": "paid",
+                "amount_total": 1200,
+                "metadata": {"purpose": "seal_fees", "fees": "extra_vault:1200"},
+            },
+            "sk_test_x",
+        )
+        with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+            with patch("billing.stripe.checkout.Session.list_line_items") as lines:
+                _session_id, paid = billing.paid_fee_amounts("cs_test_nocurrency")
+        lines.assert_not_called()
+        self.assertEqual(paid, {"extra_vault": 1200})
+
+    def test_a_paid_checkout_without_metadata_uses_the_line_item_name(self):
+        import stripe
+
+        fake = stripe.checkout.Session.construct_from(
+            {
+                "id": "cs_test_paid",
+                "object": "checkout.session",
+                "payment_status": "paid",
+                "currency": "usd",
+                "amount_total": 1200,
+            },
+            "sk_test_x",
+        )
+        listed = SimpleNamespace(
+            data=[SimpleNamespace(description="Another vault", amount_total=1200)]
+        )
+        with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+            with patch("billing.stripe.checkout.Session.list_line_items", return_value=listed):
+                _session_id, paid = billing.paid_fee_amounts("cs_test_lines")
+        self.assertEqual(paid, {"extra_vault": 1200})
+
+    def test_a_smaller_line_does_not_count_as_another_vault(self):
+        fake = session(amount_total=500, metadata={})
+        listed = SimpleNamespace(
+            data=[SimpleNamespace(description="Another vault", amount_total=500)]
+        )
+        with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+            with patch("billing.stripe.checkout.Session.list_line_items", return_value=listed):
+                with self.assertRaises(HTTPException) as caught:
+                    billing.paid_fee_amounts("cs_test_small")
+        self.assertEqual(caught.exception.status_code, 400)
 
     def test_a_bare_site_address_still_builds_an_https_return_url(self):
         os.environ["FRONTEND_URL"] = "cipherswitch.pro"

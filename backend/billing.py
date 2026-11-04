@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional
 from urllib.parse import urlparse
@@ -11,6 +12,8 @@ import stripe
 from fastapi import HTTPException, status
 
 import database as db
+
+logger = logging.getLogger("billing")
 
 PURPOSE_SEAL = "premium_seal"
 PURPOSE_TRAVEL = "premium_travel"
@@ -257,8 +260,8 @@ def create_checkout(
             cancel_url=cancel,
             metadata={
                 "purpose": purpose,
-                "vault_id": vault_id or "",
                 "fees": encode_fees(line_fees),
+                **({"vault_id": vault_id} if vault_id else {}),
             },
             line_items=[
                 {
@@ -281,6 +284,117 @@ def create_checkout(
             detail="Could not start checkout.",
         ) from exc
     return assert_checkout_url(session.url or "")
+
+
+def _value(obj, name: str, default=None):
+    """Read a Stripe field without raising when the API omitted it."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        if name not in obj or obj[name] is None:
+            return default
+        return obj[name]
+    try:
+        value = getattr(obj, name)
+    except AttributeError:
+        return default
+    return default if value is None else value
+
+
+def _text(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _amount(value) -> int:
+    if isinstance(value, bool) or value is None:
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, dict):
+        for key in ("amount", "value", "total"):
+            if key in value and value[key] is not None:
+                return _amount(value[key])
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _metadata(session) -> dict[str, str]:
+    raw = _value(session, "metadata", {})
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): _text(item) for key, item in raw.items() if item is not None}
+
+
+def _line_name(item) -> str:
+    name = _text(_value(item, "description", ""))
+    if name:
+        return name
+    product = _value(_value(item, "price", None), "product", None)
+    if isinstance(product, dict):
+        return _text(_value(product, "name", ""))
+    return ""
+
+
+def _fees_from_lines(lines) -> dict[str, int]:
+    """Credit a fee only when the line name and the amount match the catalog."""
+    prices = catalog()
+    names = {row["name"]: code for code, row in prices.items()}
+    paid: dict[str, int] = {}
+    for item in lines or []:
+        code = names.get(_line_name(item))
+        if not code:
+            continue
+        amount = _amount(_value(item, "amount_total", None))
+        if amount <= 0:
+            amount = _amount(_value(item, "amount", None))
+        price = int(prices[code]["cents"])
+        if amount >= price:
+            paid[code] = price
+    return paid
+
+
+def _line_items(session, session_id: str) -> list:
+    embedded = _value(session, "line_items", None)
+    data = _value(embedded, "data", None)
+    if data:
+        return list(data)
+    try:
+        listed = stripe.checkout.Session.list_line_items(session_id, limit=8)
+    except Exception:
+        logger.warning("Could not read checkout line items", exc_info=True)
+        return []
+    return list(_value(listed, "data", []) or [])
+
+
+def _load_checkout(session_id: str):
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+    except Exception:
+        logger.warning("Checkout session could not be read", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Payment could not be verified.",
+        ) from None
+    paid_status = _text(_value(session, "payment_status", ""))
+    currency = _text(_value(session, "currency", "")).lower()
+    amount = _amount(_value(session, "amount_total", 0))
+    meta = _metadata(session)
+    if paid_status != "paid":
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Payment is not complete.",
+        )
+    if currency and currency != "usd":
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Payment must be in US dollars.",
+        )
+    return session, meta, amount
 
 
 def assert_payment_available(session_id: Optional[str], purpose: str, vault_id: Optional[str] = None) -> str:
@@ -306,22 +420,7 @@ def assert_payment_available(session_id: Optional[str], purpose: str, vault_id: 
             detail="Payments are not configured yet.",
         )
     _use_stripe()
-    try:
-        session = stripe.checkout.Session.retrieve(session_id)
-        paid_status = session.payment_status
-        paid_currency = (session.currency or "").lower()
-        amount = int(session.amount_total or 0)
-        meta = dict(session.metadata or {})
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payment could not be verified.",
-        ) from exc
-    if paid_status != "paid" or paid_currency != "usd":
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Payment is not complete.",
-        )
+    _session, meta, amount = _load_checkout(session_id)
     if purpose == PURPOSE_TRAVEL and amount < travel_cents():
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -367,49 +466,45 @@ def paid_fee_amounts(
             detail="Payments are not configured yet.",
         )
     _use_stripe()
-    try:
-        session = stripe.checkout.Session.retrieve(session_id)
-        paid_status = session.payment_status
-        paid_currency = (session.currency or "").lower()
-        meta = dict(session.metadata or {})
-        amount = int(session.amount_total or 0)
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payment could not be verified.",
-        ) from exc
-    if paid_status != "paid" or paid_currency != "usd":
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Payment is not complete.",
-        )
+    session, meta, amount = _load_checkout(session_id)
     if vault_id and meta.get("vault_id") and meta.get("vault_id") != str(vault_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payment does not match this vault.",
         )
     purpose = meta.get("purpose") or ""
-    if purpose == "seal_fees":
-        paid = decode_fees(meta.get("fees") or "")
-        if not paid or amount < sum(paid.values()):
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Payment amount does not match the checkout.",
-            )
-    elif purpose == PURPOSE_SEAL and amount >= price_cents():
+    if purpose == PURPOSE_SEAL and amount >= price_cents():
         # Older checkout: one payment covered comfort features, not another vault.
-        paid = {
+        return session_id, {
             "recipients": recipients_cents(),
             "files": files_cents(),
             "time_lock": time_lock_cents(),
             "travel": travel_cents(),
         }
+    if purpose == "seal_fees":
+        paid = decode_fees(meta.get("fees") or "")
+        if not paid:
+            paid = _fees_from_lines(_line_items(session, session_id))
+    elif not purpose:
+        paid = _fees_from_lines(_line_items(session, session_id))
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payment does not match this action.",
+        )
+    if not paid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST if not purpose else status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                "Payment does not match this action."
+                if not purpose
+                else "Payment amount does not match the checkout."
+            ),
+        )
+    if amount < sum(paid.values()):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Payment amount does not match the checkout.",
         )
     return session_id, paid
 
