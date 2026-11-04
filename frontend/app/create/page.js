@@ -185,6 +185,18 @@ export default function CreateVaultPage() {
     );
   }
 
+  function canRemoveRecipient(index) {
+    if (recipients.length <= 1) return false;
+    return recipients.some(
+      (recipient, i) => i !== index && (recipient.role === "primary" || recipient.role === "backup")
+    );
+  }
+
+  function removeRecipient(index) {
+    if (!canRemoveRecipient(index)) return;
+    setRecipients((current) => current.filter((_, i) => i !== index));
+  }
+
   function validate() {
     if (!title.trim()) return "Add a title.";
     if (title.length > MAX_TITLE_CHARS) return "Title is too long.";
@@ -648,6 +660,21 @@ export default function CreateVaultPage() {
             <div className="space-y-3">
               {recipients.map((r, i) => (
                 <div key={i} className="space-y-3 rounded-2xl border border-slate-100 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">
+                      Recipient {i + 1}
+                    </p>
+                    {canRemoveRecipient(i) ? (
+                      <button
+                        type="button"
+                        className="text-xs font-bold text-sky"
+                        onClick={() => removeRecipient(i)}
+                        disabled={busy}
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <input
                       className="field"

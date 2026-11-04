@@ -119,6 +119,56 @@ def build_dashboard_url(access_token: str) -> str:
     return f"{FRONTEND_URL}/dashboard#access={quote(access_token, safe='')}"
 
 
+def _receipt_parts(
+    lines: list[tuple[str, str]] | None,
+    total: str,
+    reference: str,
+    issued: str,
+) -> tuple[str, str]:
+    """A plain receipt for the seal. Card numbers are never included."""
+    if not lines:
+        html = (
+            '<p style="margin-top:20px;font-weight:700;color:#1a1f2c;">Receipt</p>'
+            f"<p>Issued {_e(issued)}. No charge. This seal used the free vault: "
+            "one recipient and no extras.</p>"
+        )
+        text = (
+            f"Receipt\nIssued {issued}\n"
+            "No charge. Free vault: one recipient and no extras.\n"
+        )
+        return html, text
+    rows = "".join(
+        '<tr>'
+        f'<td style="padding:6px 0;color:#1a1f2c;">{_e(name)}</td>'
+        f'<td style="padding:6px 0;text-align:right;font-weight:700;color:#1a1f2c;">{_e(amount)}</td>'
+        "</tr>"
+        for name, amount in lines
+    )
+    reference_html = (
+        f'<p style="font-size:12px;">Payment reference: {_e(reference)}</p>'
+        if reference
+        else ""
+    )
+    html = (
+        '<p style="margin-top:20px;font-weight:700;color:#1a1f2c;">Receipt</p>'
+        f'<p style="font-size:13px;">Issued {_e(issued)}. One-time fees for this vault. '
+        "Not a subscription. Card details stay with Stripe.</p>"
+        '<table width="100%" cellspacing="0" cellpadding="0" style="margin-top:8px;border-top:1px solid #e8eef5;">'
+        f"{rows}"
+        '<tr><td style="padding:8px 0;border-top:1px solid #e8eef5;font-weight:800;color:#1a1f2c;">Total</td>'
+        f'<td style="padding:8px 0;border-top:1px solid #e8eef5;text-align:right;font-weight:800;color:#1a1f2c;">{_e(total)}</td></tr>'
+        "</table>"
+        f"{reference_html}"
+    )
+    text = f"Receipt\nIssued {issued}\n"
+    text += "".join(f"{name}: {amount}\n" for name, amount in lines)
+    text += f"Total: {total}\n"
+    if reference:
+        text += f"Payment reference: {reference}\n"
+    text += "One-time fees for this vault. Not a subscription.\n"
+    return html, text
+
+
 def send_vault_created_owner(
     *,
     owner_email: str,
@@ -128,10 +178,21 @@ def send_vault_created_owner(
     interval_days: int,
     owner_access_token: str,
     is_dry_run: bool = False,
+    receipt_lines: list[tuple[str, str]] | None = None,
+    receipt_total: str = "$0",
+    receipt_reference: str = "",
+    receipt_issued: str = "",
 ) -> bool:
     ping_url = build_ping_url(ping_token)
     dash = build_dashboard_url(owner_access_token)
     due = next_ping_due.strftime("%Y-%m-%d %H:%M UTC")
+    issued = receipt_issued or due
+    receipt_html, receipt_text = _receipt_parts(
+        receipt_lines or [],
+        receipt_total,
+        receipt_reference,
+        issued,
+    )
     dry = " <strong>(dry-run)</strong>" if is_dry_run else ""
     html = _layout(
         f"Your vault is sealed{dry}",
@@ -142,6 +203,7 @@ def send_vault_created_owner(
         <p><a href="{_e(dash)}">Open your dashboard</a></p>
         <p><a href="{_e(ping_url)}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Check in</a></p>
         <p style="word-break:break-all;font-size:12px;">{_e(ping_url)}</p>
+        {receipt_html}
         """,
     )
     return _send(
@@ -153,6 +215,7 @@ def send_vault_created_owner(
             f"Dashboard code (not your email address): {owner_access_token}\n"
             f"Dashboard: {dash}\n"
             f"Check-in: {ping_url}\n"
+            f"{receipt_text}"
         ),
     )
 

@@ -655,6 +655,8 @@ def create_vault(body: VaultCreateRequest, background: BackgroundTasks) -> Vault
     )
     paid_session = None
     paid_amounts: dict[str, int] = {}
+    charged_fees: list = []
+    payment_reference = ""
     if fees:
         paid_session, paid_amounts = billing.paid_fee_amounts(body.checkout_session_id)
         missing = billing.missing_fees(fees, paid_amounts)
@@ -757,7 +759,9 @@ def create_vault(body: VaultCreateRequest, background: BackgroundTasks) -> Vault
                     status_code=status.HTTP_402_PAYMENT_REQUIRED,
                     detail=f"Payment does not cover: {names}.",
                 )
-            charge = paid_session if live_fees else None
+            charged_fees = live_fees
+            payment_reference = paid_session if live_fees else ""
+            charge = payment_reference or None
             cur.execute(insert_sql, params)
             row = cur.fetchone()
             if charge:
@@ -822,6 +826,8 @@ def create_vault(body: VaultCreateRequest, background: BackgroundTasks) -> Vault
     frontend = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
     dashboard_hint = f"{frontend}/dashboard#access={owner_access}"
 
+    receipt_lines = [(fee.name, billing._money(fee.cents)) for fee in charged_fees]
+    receipt_total = billing._money(sum(fee.cents for fee in charged_fees)) if charged_fees else "$0"
     background.add_task(
         email_service.send_vault_created_owner,
         owner_email=str(body.owner_email).lower(),
@@ -831,6 +837,10 @@ def create_vault(body: VaultCreateRequest, background: BackgroundTasks) -> Vault
         interval_days=check_in_days,
         owner_access_token=owner_access,
         is_dry_run=body.is_dry_run,
+        receipt_lines=receipt_lines,
+        receipt_total=receipt_total,
+        receipt_reference=payment_reference,
+        receipt_issued=now.strftime("%Y-%m-%d %H:%M UTC"),
     )
 
     return VaultCreateResponse(
