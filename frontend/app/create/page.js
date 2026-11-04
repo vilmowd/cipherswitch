@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { VAULT_TEMPLATES } from "../templates";
 import WidgetSkeleton from "../../components/WidgetSkeleton";
+import { apiBase } from "../../utils/api";
 import { stripeCheckoutUrl } from "../../utils/checkout";
 import {
   buildDashboardUrl,
@@ -19,7 +20,7 @@ import {
   splitPassphrase,
 } from "../../utils/crypto";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = apiBase(process.env.NEXT_PUBLIC_API_URL);
 const DRAFT_KEY = "cipherswitch-seal-draft";
 
 const emptyRecipient = (role = "primary") => ({

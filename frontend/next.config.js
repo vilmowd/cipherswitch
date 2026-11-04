@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
-const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const { apiBase } = require("./utils/api");
+const apiUrl = apiBase(process.env.NEXT_PUBLIC_API_URL);
 const connectSrc = ["'self'", apiUrl];
 if (/localhost|127\.0\.0\.1/.test(apiUrl)) {
   connectSrc.push("http://localhost:8000", "http://127.0.0.1:8000");

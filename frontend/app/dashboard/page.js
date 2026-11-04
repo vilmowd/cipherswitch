@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import WidgetSkeleton from "../../components/WidgetSkeleton";
+import { apiBase } from "../../utils/api";
 import { stripeCheckoutUrl } from "../../utils/checkout";
 import {
   attachmentLimitError,
@@ -15,7 +16,7 @@ import {
   parseHashParam,
 } from "../../utils/crypto";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = apiBase(process.env.NEXT_PUBLIC_API_URL);
 
 function CheckInButton({ vault, now, busy, onCheckIn }) {
   const due = new Date(vault.next_ping_due);

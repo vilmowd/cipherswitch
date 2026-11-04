@@ -8,8 +8,9 @@ import {
   decryptVaultPayload,
   parseHashParam,
 } from "../../../utils/crypto";
+import { apiBase } from "../../../utils/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = apiBase(process.env.NEXT_PUBLIC_API_URL);
 
 function downloadName(name) {
   const cleaned = String(name || "attachment")

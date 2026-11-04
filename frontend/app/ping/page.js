@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import WidgetSkeleton from "../../components/WidgetSkeleton";
+import { apiBase } from "../../utils/api";
 import { buildPingUrl, parseHashParam } from "../../utils/crypto";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = apiBase(process.env.NEXT_PUBLIC_API_URL);
 
 export default function PingPage() {
   const [token, setToken] = useState("");
