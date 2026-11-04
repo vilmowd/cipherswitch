@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { VAULT_TEMPLATES } from "../templates";
+import DateTimeField from "../../components/DateTimeField";
 import FilePicker from "../../components/FilePicker";
 import WidgetSkeleton from "../../components/WidgetSkeleton";
 import { apiBase } from "../../utils/api";
@@ -658,14 +659,14 @@ export default function CreateVaultPage() {
             </div>
             <div>
               <label className="label sm:min-h-10" htmlFor="release">Time-lock (optional) · {money(feeCents.time_lock)} once</label>
-              <input id="release" type="datetime-local" className="field" value={releaseAt} onChange={(e) => setReleaseAt(e.target.value)} disabled={busy} />
+              <DateTimeField id="release" value={releaseAt} onChange={setReleaseAt} disabled={busy} />
             </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="travel">Travel until (optional) · {money(feeCents.travel)} once</label>
-              <input id="travel" type="datetime-local" className="field" value={travelUntil} onChange={(e) => setTravelUntil(e.target.value)} disabled={busy} />
+              <DateTimeField id="travel" value={travelUntil} onChange={setTravelUntil} disabled={busy} />
             </div>
             <div>
               <label className="label" htmlFor="travelInt">Travel interval days</label>

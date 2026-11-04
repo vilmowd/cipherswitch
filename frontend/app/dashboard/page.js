@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import DateTimeField from "../../components/DateTimeField";
 import FilePicker from "../../components/FilePicker";
 import WidgetSkeleton from "../../components/WidgetSkeleton";
 import { apiBase } from "../../utils/api";
@@ -755,12 +756,10 @@ export default function DashboardPage() {
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="label" htmlFor={`travel-until-${v.vault_id}`}>Travel until</label>
-                    <input
+                    <DateTimeField
                       id={`travel-until-${v.vault_id}`}
-                      type="datetime-local"
-                      className="field"
                       value={travelUntil}
-                      onChange={(e) => setTravelUntil(e.target.value)}
+                      onChange={setTravelUntil}
                       disabled={busy}
                     />
                   </div>

@@ -188,6 +188,160 @@ svg {
     overflow-wrap: anywhere;
   }
 
+  .date-field {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    max-width: 100%;
+    height: 3rem;
+    min-height: 3rem;
+    border-radius: 8px;
+    border: 1px solid #d7dee8;
+    background: #ffffff;
+    padding: 0 0.95rem;
+    font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1f2c;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .date-field:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .date-field:focus-visible {
+    outline: none;
+    border-color: #5da8de;
+    box-shadow: 0 0 0 4px rgba(93, 168, 222, 0.16);
+  }
+
+  .date-pop {
+    position: fixed;
+    z-index: 80;
+    width: min(320px, calc(100vw - 16px));
+    border: 1px solid #d7dee8;
+    border-radius: 12px;
+    background: #ffffff;
+    padding: 12px;
+    box-shadow: 0 16px 40px rgba(26, 31, 44, 0.12);
+  }
+
+  .date-pop-head,
+  .date-actions,
+  .date-time {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .date-month {
+    font-weight: 800;
+    color: #1a1f2c;
+  }
+
+  .date-nav,
+  .date-day,
+  .date-clear,
+  .date-done {
+    border: 0;
+    background: transparent;
+    color: #1a1f2c;
+    cursor: pointer;
+  }
+
+  .date-nav {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    font-size: 22px;
+  }
+
+  .date-nav:hover,
+  .date-day:hover:not(:disabled) {
+    background: #f3f9fd;
+  }
+
+  .date-week,
+  .date-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    margin-top: 8px;
+    text-align: center;
+  }
+
+  .date-week {
+    color: #8b95a8;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .date-day {
+    height: 34px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .date-day:disabled {
+    color: #c5ced8;
+    cursor: not-allowed;
+  }
+
+  .date-day.is-outside {
+    color: #8b95a8;
+  }
+
+  .date-day.is-selected {
+    background: #5da8de;
+    color: #ffffff;
+  }
+
+  .date-time {
+    margin-top: 12px;
+  }
+
+  .date-time label {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+    color: #5a6578;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .date-time select {
+    height: 40px;
+    border: 1px solid #d7dee8;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 0 8px;
+    color: #1a1f2c;
+    font-size: 16px;
+  }
+
+  .date-actions {
+    margin-top: 12px;
+  }
+
+  .date-clear,
+  .date-done {
+    min-height: 36px;
+    border-radius: 8px;
+    padding: 0 12px;
+    font-weight: 700;
+  }
+
+  .date-done {
+    background: #5da8de;
+    color: #ffffff;
+  }
+
   .field {
     width: 100%;
     max-width: 100%;
@@ -446,7 +600,9 @@ html[data-a11y-contrast="high"] footer,
 html[data-a11y-contrast="high"] .panel,
 html[data-a11y-contrast="high"] .elevated-chip,
 html[data-a11y-contrast="high"] .btn-ghost,
-html[data-a11y-contrast="high"] .file-picker-button {
+html[data-a11y-contrast="high"] .file-picker-button,
+html[data-a11y-contrast="high"] .date-field,
+html[data-a11y-contrast="high"] .date-pop {
   background: #ffffff !important;
   color: #000000 !important;
   border-color: #000000 !important;
@@ -476,7 +632,9 @@ html[data-a11y-contrast="dark"] footer,
 html[data-a11y-contrast="dark"] .panel,
 html[data-a11y-contrast="dark"] .elevated-chip,
 html[data-a11y-contrast="dark"] .btn-ghost,
-html[data-a11y-contrast="dark"] .file-picker-button {
+html[data-a11y-contrast="dark"] .file-picker-button,
+html[data-a11y-contrast="dark"] .date-field,
+html[data-a11y-contrast="dark"] .date-pop {
   background: #171d27 !important;
   color: #f7f9fc !important;
   border-color: #d7e0ea !important;
