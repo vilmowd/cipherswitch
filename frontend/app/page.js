@@ -41,7 +41,7 @@ const KINDS = [
   },
   {
     title: "Files",
-    body: "Attachments are encrypted on your device, the same way as the message.",
+    body: "Attachments are sealed before they are stored, the same way as the message.",
   },
 ];
 
@@ -164,8 +164,8 @@ export default function HomePage() {
             Dead <span className="text-sky">switch.</span>
           </h1>
           <p className="animate-fade-up-2 mt-6 max-w-md text-base leading-relaxed text-ink-soft sm:text-lg">
-            A vault that stays shut until you stop checking in. Encrypted on
-            your device. Released only by silence.
+            A vault that stays shut until you stop checking in. Sealed before
+            it is stored. Released only by silence.
           </p>
           <div className="animate-fade-up-3 mt-8 hidden items-center gap-3 md:flex">
             <a href="/create" className="btn-primary">
@@ -339,8 +339,9 @@ export default function HomePage() {
               One vault is free. The next one is paid.
             </h2>
             <p className="mt-4 max-w-md text-base leading-relaxed text-ink-soft">
-              The first vault for an email is free. Each later vault from that
-              same email is $12, paid once. There is no subscription.
+              The first vault for an email is free. Another one is $12 only
+              while that email still has an active vault. Delete it, and the
+              next vault is free again. There is no subscription.
             </p>
           </div>
           <div className="mt-12 grid gap-8 sm:grid-cols-3">
@@ -368,8 +369,8 @@ export default function HomePage() {
               <p className="text-sm font-semibold text-sky">Another vault</p>
               <h3 className="mt-2 text-3xl font-extrabold tracking-tight text-ink">$12</h3>
               <ul className="mt-4 divide-y divide-slate-200 border-y border-slate-200 text-sm text-ink">
-                <li className="py-3">Same email, next vault</li>
-                <li className="py-3">Paid again for each one after that</li>
+                <li className="py-3">Only while a vault is still active</li>
+                <li className="py-3">Free again after the last one is deleted</li>
                 <li className="py-3">The email address alone does not open it</li>
               </ul>
             </div>

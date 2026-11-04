@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 import billing
+import body_limit
 import database as db
 import email_service
 
@@ -52,7 +53,7 @@ class RecipientIn(BaseModel):
 
 class VaultCreateRequest(BaseModel):
     encrypted_title: str = Field(..., min_length=16, max_length=8192)
-    encrypted_payload: str = Field(..., min_length=16, max_length=5_000_000)
+    encrypted_payload: str = Field(..., min_length=16, max_length=body_limit.MAX_CIPHERTEXT_CHARS)
     init_vector: str = Field(..., min_length=8, max_length=128)
     title_iv: str = Field(..., min_length=8, max_length=128)
     salt: str = Field(..., min_length=8, max_length=128)
@@ -220,7 +221,7 @@ class OwnerAccessRequest(BaseModel):
 class VaultUpdateRequest(BaseModel):
     owner_access_token: str = Field(..., min_length=32, max_length=128)
     encrypted_title: str = Field(..., min_length=16, max_length=8192)
-    encrypted_payload: str = Field(..., min_length=16, max_length=5_000_000)
+    encrypted_payload: str = Field(..., min_length=16, max_length=body_limit.MAX_CIPHERTEXT_CHARS)
     init_vector: str = Field(..., min_length=8, max_length=128)
     title_iv: str = Field(..., min_length=8, max_length=128)
     salt: str = Field(..., min_length=8, max_length=128)
@@ -325,11 +326,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     db.close_pool()
 
 
+_docs_enabled = os.getenv("ENABLE_API_DOCS", "").strip() == "1"
 app = FastAPI(
     title="CipherSwitch API",
     description="Zero-knowledge dead man's switch with dashboard, grace period, multi-recipient.",
     version="3.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 cors_origins = [
@@ -338,9 +343,38 @@ cors_origins = [
         "CORS_ORIGINS",
         "http://localhost:3000,http://127.0.0.1:3000",
     ).split(",")
-    if o.strip()
+    if o.strip() and o.strip() != "*"
 ]
 
+
+class _SecurityHeaders:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers") or [])
+                present = {name.lower() for name, _ in headers}
+                for name, value in (
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"x-frame-options", b"DENY"),
+                    (b"referrer-policy", b"no-referrer"),
+                    (b"cache-control", b"no-store"),
+                ):
+                    if name not in present:
+                        headers.append((name, value))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with)
+
+app.add_middleware(body_limit.BodyLimitMiddleware)
+app.add_middleware(_SecurityHeaders)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -361,10 +395,9 @@ def health() -> HealthResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database unavailable",
         ) from None
-    backend = "sqlite" if db.is_sqlite() else "postgres"
     return HealthResponse(
         status="ok",
-        database=f"{db_status}:{backend}",
+        database=db_status,
         email="configured" if email_service.is_configured() else "disabled",
     )
 
@@ -566,7 +599,10 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
                 (owner_email,),
             )
             cur.execute(
-                "SELECT COUNT(*) AS n FROM vaults WHERE owner_email = %s",
+                """
+                SELECT COUNT(*) AS n FROM vaults
+                WHERE owner_email = %s AND status IN ('ACTIVE', 'GRACE')
+                """,
                 (owner_email,),
             )
             count_row = cur.fetchone()
@@ -634,8 +670,8 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
                     detail="That payment was already used. Pay again to use this feature again.",
                 ) from exc
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Token collision. Retry.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to create vault",
             ) from exc
         logger.exception("Vault creation failed")
         raise HTTPException(
@@ -673,6 +709,7 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
                 role=rec.role,
                 release_delay_days=rec.release_delay_days,
                 is_dry_run=body.is_dry_run,
+                has_attachments=billing.payload_has_files(body),
             )
 
     return VaultCreateResponse(
@@ -688,65 +725,38 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
     )
 
 
-@app.post("/api/vaults/ping", response_model=PingResponse)
-def ping_vault(body: PingRequest) -> PingResponse:
-    token_hash = _hash_token(body.token)
+def _finish_check_in(cur, row: dict) -> tuple[dict, str, str]:
+    if row["status"] == "TRIGGERED":
+        raise HTTPException(
+            status_code=409,
+            detail="This vault has already been triggered.",
+        )
     now = _utcnow()
+    interval = _effective_interval(row)
+    next_due = now + timedelta(days=interval)
     rotated = _new_token()
     rotated_hash = _hash_token(rotated)
-    owner_email = ""
-    lock_sql = "FOR UPDATE" if not db.is_sqlite() else ""
-
-    try:
-        with db.get_cursor(commit=True) as cur:
-            cur.execute(
-                f"""
-                SELECT id, status, interval_days, owner_email, travel_until,
-                       travel_interval_days, grace_days
-                FROM vaults
-                WHERE ping_token_hash = %s
-                {lock_sql}
-                """,
-                (token_hash,),
-            )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Unknown or invalid check-in token")
-            if row["status"] == "TRIGGERED":
-                raise HTTPException(
-                    status_code=409,
-                    detail="This vault has already been triggered.",
-                )
-
-            owner_email = row["owner_email"]
-            interval = _effective_interval(row)
-            next_due = now + timedelta(days=interval)
-            cur.execute(
-                """
-                UPDATE vaults
-                SET last_ping_at = %s,
-                    next_ping_due = %s,
-                    ping_token_hash = %s,
-                    status = 'ACTIVE',
-                    grace_started_at = NULL,
-                    reminder_sent_at = NULL
-                WHERE id = %s
-                RETURNING id, status, last_ping_at, next_ping_due
-                """,
-                (_sql_val(now), _sql_val(next_due), rotated_hash, row["id"]),
-            )
-            updated = cur.fetchone()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        if _is_unique_violation(exc):
-            raise HTTPException(status_code=500, detail="Unable to rotate token") from exc
-        logger.exception("Ping failed")
-        raise HTTPException(status_code=500, detail="Unable to register check-in") from exc
-
+    cur.execute(
+        """
+        UPDATE vaults
+        SET last_ping_at = %s,
+            next_ping_due = %s,
+            ping_token_hash = %s,
+            status = 'ACTIVE',
+            grace_started_at = NULL,
+            reminder_sent_at = NULL
+        WHERE id = %s
+        RETURNING id, status, last_ping_at, next_ping_due
+        """,
+        (_sql_val(now), _sql_val(next_due), rotated_hash, row["id"]),
+    )
+    updated = cur.fetchone()
     if not updated:
         raise HTTPException(status_code=500, detail="Check-in recorded but no row returned")
+    return updated, rotated, row["owner_email"]
 
+
+def _check_in_response(updated: dict, rotated: str, owner_email: str) -> PingResponse:
     next_due_parsed = _parse_dt(updated["next_ping_due"])
     email_service.send_ping_rotated(
         owner_email=owner_email,
@@ -764,9 +774,79 @@ def ping_vault(body: PingRequest) -> PingResponse:
     )
 
 
-@app.get("/api/vaults/dashboard", response_model=DashboardResponse)
-def dashboard(access_token: str) -> DashboardResponse:
-    token_hash = _hash_token(access_token.strip())
+@app.post("/api/vaults/ping", response_model=PingResponse)
+def ping_vault(body: PingRequest) -> PingResponse:
+    token_hash = _hash_token(body.token)
+    lock_sql = "FOR UPDATE" if not db.is_sqlite() else ""
+    updated = None
+    rotated = ""
+    owner_email = ""
+
+    try:
+        with db.get_cursor(commit=True) as cur:
+            cur.execute(
+                f"""
+                SELECT id, status, interval_days, owner_email, travel_until,
+                       travel_interval_days, grace_days
+                FROM vaults
+                WHERE ping_token_hash = %s
+                {lock_sql}
+                """,
+                (token_hash,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Unknown or invalid check-in token")
+            updated, rotated, owner_email = _finish_check_in(cur, row)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_unique_violation(exc):
+            raise HTTPException(status_code=500, detail="Unable to rotate token") from exc
+        logger.exception("Ping failed")
+        raise HTTPException(status_code=500, detail="Unable to register check-in") from exc
+
+    return _check_in_response(updated, rotated, owner_email)
+
+
+@app.post("/api/vaults/{vault_id}/check-in", response_model=PingResponse)
+def owner_check_in(vault_id: UUID, body: OwnerAccessRequest) -> PingResponse:
+    token_hash = _hash_token(body.owner_access_token.strip())
+    lock_sql = "FOR UPDATE" if not db.is_sqlite() else ""
+    updated = None
+    rotated = ""
+    owner_email = ""
+
+    try:
+        with db.get_cursor(commit=True) as cur:
+            cur.execute(
+                f"""
+                SELECT id, status, interval_days, owner_email, travel_until,
+                       travel_interval_days, grace_days
+                FROM vaults
+                WHERE id = %s AND owner_access_token_hash = %s
+                {lock_sql}
+                """,
+                (str(vault_id), token_hash),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Vault not found or access denied")
+            updated, rotated, owner_email = _finish_check_in(cur, row)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_unique_violation(exc):
+            raise HTTPException(status_code=500, detail="Unable to rotate token") from exc
+        logger.exception("Owner check-in failed")
+        raise HTTPException(status_code=500, detail="Unable to register check-in") from exc
+
+    return _check_in_response(updated, rotated, owner_email)
+
+
+@app.post("/api/vaults/dashboard", response_model=DashboardResponse)
+def dashboard(body: OwnerAccessRequest) -> DashboardResponse:
+    token_hash = _hash_token(body.owner_access_token.strip())
     vaults = db.fetch_all(
         """
         SELECT * FROM vaults
@@ -937,6 +1017,7 @@ def dry_run_trigger(vault_id: UUID, body: DryRunTriggerRequest) -> dict:
                 recipient_email=r["email"],
                 vault_id=str(vault_id),
                 is_dry_run=True,
+                has_attachments=bool(vault.get("has_attachments")),
             )
     email_service.send_vault_triggered_owner(
         owner_email=vault["owner_email"],

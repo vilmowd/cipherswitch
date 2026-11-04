@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 from typing import Optional
+from urllib.parse import urlparse
+from uuid import UUID
 
 import stripe
 from fastapi import HTTPException, status
@@ -48,8 +50,13 @@ def _money(cents: int) -> str:
 
 
 def email_has_vault(owner_email: str) -> bool:
+    """True when this email still has a vault that has not been released."""
     row = db.fetch_one(
-        "SELECT 1 AS ok FROM vaults WHERE owner_email = %s LIMIT 1",
+        """
+        SELECT 1 AS ok FROM vaults
+        WHERE owner_email = %s AND status IN ('ACTIVE', 'GRACE')
+        LIMIT 1
+        """,
         (owner_email.strip().lower(),),
     )
     return row is not None
@@ -60,7 +67,16 @@ def _secret() -> str:
 
 
 def _frontend() -> str:
-    return os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    raw = os.getenv("FRONTEND_URL", "http://localhost:3000").strip().rstrip("/")
+    parsed = urlparse(raw)
+    if (
+        parsed.scheme not in ("http", "https")
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+    ):
+        raise HTTPException(status_code=500, detail="Could not start checkout.")
+    return raw
 
 
 COMFORT_CAP_CENTS = 500
@@ -165,6 +181,22 @@ def catalog() -> dict:
     }
 
 
+def assert_checkout_url(url: str) -> str:
+    parsed = urlparse(url or "")
+    if parsed.scheme != "https" or parsed.hostname != "checkout.stripe.com":
+        raise HTTPException(status_code=502, detail="Checkout did not return a URL.")
+    return url
+
+
+def _vault_id(vault_id: Optional[str]) -> Optional[str]:
+    if not vault_id:
+        return None
+    try:
+        return str(UUID(str(vault_id)))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="vault_id is invalid") from None
+
+
 def create_checkout(
     *,
     purpose: str,
@@ -180,6 +212,7 @@ def create_checkout(
         )
     stripe.api_key = secret
     frontend = _frontend()
+    vault_id = _vault_id(vault_id)
     line_fees = list(fees or [])
     if purpose == PURPOSE_TRAVEL:
         if not vault_id:
@@ -230,9 +263,7 @@ def create_checkout(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not start checkout.",
         ) from exc
-    if not session.url:
-        raise HTTPException(status_code=502, detail="Checkout did not return a URL.")
-    return session.url
+    return assert_checkout_url(session.url or "")
 
 
 def assert_payment_available(session_id: Optional[str], purpose: str, vault_id: Optional[str] = None) -> str:

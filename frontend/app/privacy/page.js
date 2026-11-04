@@ -19,6 +19,15 @@ export default function PrivacyPage() {
           cannot be restored from the stored ciphertext.
         </p>
       </LegalSection>
+      <LegalSection title="Files that cannot be scanned">
+        <p>
+          A file is encrypted in the browser before upload. CipherSwitch cannot
+          open it, scan it, or tell a document from a harmful program. Using
+          the service to distribute malware is prohibited. The email a
+          recipient receives warns that a file may be unsafe and that they
+          should not open it unless they trust the sender.
+        </p>
+      </LegalSection>
       <LegalSection title="What the server stores">
         <p>When you create a vault, the service stores:</p>
         <ul className="list-disc space-y-1 pl-5">
@@ -83,12 +92,12 @@ export default function PrivacyPage() {
       </LegalSection>
       <LegalSection title="How long it is kept">
         <p>
-          Vault records stay until the operator of this deployment deletes them.
-          This copy of the site does not yet include a self-serve delete
-          button. A request to delete a vault has to go to that operator, who
-          can remove the row from the database they control. Deletion removes
-          the ciphertext and the stored email addresses for that vault. It
-          cannot erase copies already delivered to a recipient’s inbox.
+          The owner can delete a vault from the dashboard with the dashboard
+          code. Deletion removes the ciphertext and the stored email addresses
+          for that vault. It cannot erase a message already delivered to an
+          inbox, and it cannot undo a file a recipient already downloaded. The
+          operator of this deployment can also remove a vault from the database
+          they control.
         </p>
       </LegalSection>
       <LegalSection title="Who it is shared with">

@@ -415,6 +415,31 @@ export function combinePassphraseShares(shareYou, shareThem) {
   return TEXT_DECODER.decode(out);
 }
 
+export const MAX_FILE_BYTES = 1_500_000;
+export const MAX_FILES = 3;
+export const MAX_TOTAL_FILE_BYTES = 3_000_000;
+export const MAX_MESSAGE_CHARS = 20_000;
+export const MAX_TITLE_CHARS = 300;
+
+export function attachmentLimitError(files, existing = []) {
+  const incoming = Array.from(files || []);
+  const prior = Array.from(existing || []);
+  if (prior.length + incoming.length > MAX_FILES) {
+    return `You can attach up to ${MAX_FILES} files.`;
+  }
+  let total = prior.reduce((sum, file) => sum + Number(file.size || 0), 0);
+  for (const file of incoming) {
+    if (file.size > MAX_FILE_BYTES) {
+      return `${file.name} is too large. Each file can be up to 1.5 MB.`;
+    }
+    total += file.size;
+    if (total > MAX_TOTAL_FILE_BYTES) {
+      return "Those files together are over 3 MB.";
+    }
+  }
+  return null;
+}
+
 export function fileToAttachment(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

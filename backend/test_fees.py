@@ -95,6 +95,23 @@ class FeeRules(unittest.TestCase):
         self.assertTrue(billing.payload_has_files(large))
         self.assertTrue(billing.payload_has_files(flagged))
 
+    def test_checkout_url_must_be_stripe(self):
+        ok = "https://checkout.stripe.com/c/pay/cs_test_a"
+        self.assertEqual(billing.assert_checkout_url(ok), ok)
+        for bad in (
+            "https://evil.example/checkout",
+            "http://checkout.stripe.com/c/pay/cs_test_a",
+            "https://checkout.stripe.com.evil.example/c/pay/cs_test_a",
+            "",
+        ):
+            with self.assertRaises(Exception):
+                billing.assert_checkout_url(bad)
+
+    def test_checkout_rejects_a_vault_id_that_is_not_a_uuid(self):
+        with self.assertRaises(Exception):
+            billing._vault_id("not-a-vault&travel_paid=1")
+        self.assertIsNone(billing._vault_id(None))
+
 
 if __name__ == "__main__":
     unittest.main()

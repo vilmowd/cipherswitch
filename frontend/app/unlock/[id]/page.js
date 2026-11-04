@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import WidgetSkeleton from "../../../components/WidgetSkeleton";
 import {
   combinePassphraseShares,
   decryptVaultPayload,
@@ -9,6 +10,20 @@ import {
 } from "../../../utils/crypto";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+function downloadName(name) {
+  const cleaned = String(name || "attachment")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[\\/]/g, "")
+    .trim()
+    .slice(0, 120);
+  return cleaned || "attachment";
+}
+
+function downloadHref(data) {
+  const cleaned = String(data || "").replace(/[^A-Za-z0-9+/=_-]/g, "");
+  return `data:application/octet-stream;base64,${cleaned}`;
+}
 
 export default function UnlockPage() {
   const params = useParams();
@@ -193,11 +208,7 @@ export default function UnlockPage() {
           </form>
         )}
 
-        {phase === "loading" && (
-          <p className="inline-flex rounded-full px-3 py-1 text-sm font-semibold status-warn">
-            Checking unlock token…
-          </p>
-        )}
+        {phase === "loading" && <WidgetSkeleton label="Checking unlock token" />}
 
         {phase === "sealed" && (
           <div className="space-y-4">
@@ -325,14 +336,14 @@ export default function UnlockPage() {
                   <div>
                     <p className="label">Attachments</p>
                     <ul className="space-y-2">
-                      {attachments.map((file) => (
-                        <li key={file.name}>
+                      {attachments.map((file, index) => (
+                        <li key={`${downloadName(file.name)}-${index}`}>
                           <a
                             className="text-sm font-semibold text-sky hover:underline"
-                            href={`data:${file.mime};base64,${file.data}`}
-                            download={file.name}
+                            href={downloadHref(file.data)}
+                            download={downloadName(file.name)}
                           >
-                            Download {file.name}
+                            Download {downloadName(file.name)}
                           </a>
                         </li>
                       ))}

@@ -177,6 +177,7 @@ def _notify_triggered(vault: dict[str, Any]) -> None:
                 recipient_email=vault["recipient_email"],
                 vault_id=vault_id,
                 is_dry_run=is_dry,
+                has_attachments=bool(vault.get("has_attachments")),
             )
     for r in recs:
         if r["role"] == "witness":
@@ -190,6 +191,7 @@ def _notify_triggered(vault: dict[str, Any]) -> None:
                 recipient_email=r["email"],
                 vault_id=vault_id,
                 is_dry_run=is_dry,
+                has_attachments=bool(vault.get("has_attachments")),
             )
     email_service.send_vault_triggered_owner(
         owner_email=vault["owner_email"],

@@ -51,10 +51,12 @@ export default function TermsPage() {
           The first vault for an email, with one recipient and no extras, is
           free. Extra recipients, files, a time-lock, and travel mode each have
           their own one-time fee. None of those comfort fees is more than $5.
-          Each later vault from an email that already has one has a separate
-          one-time fee. A fee is charged again the next time you use that
-          feature, including turning travel mode on later or sealing another
-          vault. It is not a subscription.
+          Another vault is a separate one-time fee only while that email
+          still has an active vault. If the vault is deleted and none are
+          left active, the next vault is free again, aside from any comfort
+          fees. A comfort fee is charged again the next time you use that
+          feature, including turning travel mode on later. It is not a
+          subscription.
         </p>
         <p>
           Card payments are processed by Stripe. CipherSwitch does not store
@@ -69,7 +71,7 @@ export default function TermsPage() {
         <p>You may not use CipherSwitch to:</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>break the law, or help someone else break the law</li>
-          <li>store or release malware, or try to break into systems you do not control</li>
+          <li>distribute malware, including a harmful file disguised as something important, or try to break into systems you do not control</li>
           <li>defraud, extort, stalk, or threaten anyone</li>
           <li>send material to a person who did not need to be involved, or misuse their email address</li>
           <li>interfere with the service, probe it without permission, or overload it</li>
@@ -78,6 +80,21 @@ export default function TermsPage() {
           The operator may refuse, disable, or remove a vault that appears to
           break these terms. Hashed tokens and ciphertext can be deleted from
           the database the operator controls.
+        </p>
+      </LegalSection>
+      <LegalSection title="Malware">
+        <p>
+          You must not use CipherSwitch to store, send, or release malware.
+          That includes viruses, trojans, ransomware, spyware, and any other
+          file or instruction meant to damage a device, steal access, or trick
+          a recipient into running something harmful.
+        </p>
+        <p>
+          A vault is encrypted before it is uploaded, so CipherSwitch cannot
+          open a file or scan it. You are responsible for every file you
+          attach. The email a recipient receives says that a file was not
+          scanned and may be unsafe. The operator may disable or
+          delete a vault that appears to be used to distribute malware.
         </p>
       </LegalSection>
       <LegalSection title="No professional advice">

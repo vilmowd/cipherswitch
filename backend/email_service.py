@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
+from html import escape
 from typing import Optional
 from urllib.parse import quote
 
@@ -16,6 +17,10 @@ EMAIL_FROM = os.getenv(
     "EMAIL_FROM",
     "CipherSwitch <onboarding@resend.dev>",
 ).strip()
+
+
+def _e(value: object) -> str:
+    return escape(str(value), quote=True)
 
 
 def is_configured() -> bool:
@@ -46,6 +51,25 @@ def _send(*, to: str, subject: str, html: str, text: str) -> bool:
         return False
 
 
+def _untrusted_file_notice(*, has_file: bool) -> tuple[str, str]:
+    lead = (
+        "This vault includes a file chosen by the person who sealed it."
+        if has_file
+        else "If this vault includes a file, that file was chosen by the person who sealed it."
+    )
+    text = (
+        f"{lead} CipherSwitch cannot open or scan it. "
+        "A file might be unsafe, including malware disguised as something important. "
+        "Do not download or open a file unless you trust the sender, and scan it on your own device first."
+    )
+    html = (
+        '<p style="margin-top:16px;padding:12px 14px;border:1px solid #e7c48a;'
+        'border-radius:12px;background:#fff6e5;color:#1a1f2c;">'
+        f"<strong>Before you open a file.</strong> {text}</p>"
+    )
+    return html, text
+
+
 def _layout(title: str, body_html: str) -> str:
     return f"""<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#f5f8fb;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#1a1f2c;">
@@ -63,7 +87,10 @@ def build_ping_url(token: str) -> str:
 
 
 def build_unlock_url(vault_id: str, unlock_token: str) -> str:
-    return f"{FRONTEND_URL}/unlock/{vault_id}#unlock={quote(unlock_token, safe='')}"
+    return (
+        f"{FRONTEND_URL}/unlock/{quote(str(vault_id), safe='')}"
+        f"#unlock={quote(unlock_token, safe='')}"
+    )
 
 
 def build_dashboard_url(access_token: str) -> str:
@@ -87,12 +114,12 @@ def send_vault_created_owner(
     html = _layout(
         f"Your vault is sealed{dry}",
         f"""
-        <p>Vault <strong>{vault_id}</strong> is active. Check in every <strong>{interval_days}</strong> day(s). Next: <strong>{due}</strong>.</p>
+        <p>Vault <strong>{_e(vault_id)}</strong> is active. Check in every <strong>{_e(interval_days)}</strong> day(s). Next: <strong>{_e(due)}</strong>.</p>
         <p>Your dashboard code is below. It is not your email address. The email address alone cannot open the dashboard.</p>
-        <p style="word-break:break-all;font-family:ui-monospace,monospace;font-size:13px;color:#1a1f2c;">{owner_access_token}</p>
-        <p><a href="{dash}">Open your dashboard</a></p>
-        <p><a href="{ping_url}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Check in</a></p>
-        <p style="word-break:break-all;font-size:12px;">{ping_url}</p>
+        <p style="word-break:break-all;font-family:ui-monospace,monospace;font-size:13px;color:#1a1f2c;">{_e(owner_access_token)}</p>
+        <p><a href="{_e(dash)}">Open your dashboard</a></p>
+        <p><a href="{_e(ping_url)}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Check in</a></p>
+        <p style="word-break:break-all;font-size:12px;">{_e(ping_url)}</p>
         """,
     )
     return _send(
@@ -116,28 +143,34 @@ def send_vault_created_recipient(
     role: str = "primary",
     release_delay_days: int = 0,
     is_dry_run: bool = False,
+    has_attachments: bool = False,
 ) -> bool:
     unlock_url = build_unlock_url(vault_id, unlock_token)
     dry = " (dry-run test)" if is_dry_run else ""
+    notice_html, notice_text = _untrusted_file_notice(has_file=has_attachments)
     delay = (
-        f"<p>Your role is <strong>{role}</strong> with a <strong>{release_delay_days}-day</strong> delay after trigger.</p>"
+        f"<p>Your role is <strong>{_e(role)}</strong> with a <strong>{_e(release_delay_days)}-day</strong> delay after trigger.</p>"
         if release_delay_days
-        else f"<p>Your role: <strong>{role}</strong>.</p>"
+        else f"<p>Your role: <strong>{_e(role)}</strong>.</p>"
     )
     html = _layout(
         f"You’ve been named as a recipient{dry}",
         f"""
         <p>Save this unlock link. You’ll also need the passphrase shared separately.</p>
         {delay}
-        <p><a href="{unlock_url}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Save unlock link</a></p>
-        <p style="word-break:break-all;font-size:12px;">{unlock_url}</p>
+        {notice_html}
+        <p><a href="{_e(unlock_url)}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Save unlock link</a></p>
+        <p style="word-break:break-all;font-size:12px;">{_e(unlock_url)}</p>
         """,
     )
     return _send(
         to=recipient_email,
         subject="CipherSwitch — save your unlock link",
         html=html,
-        text=f"Recipient for vault {vault_id} ({role}). Unlock: {unlock_url}\n",
+        text=(
+            f"Recipient for vault {vault_id} ({role}). Unlock: {unlock_url}\n"
+            f"Before you open a file. {notice_text}\n"
+        ),
     )
 
 
@@ -145,7 +178,7 @@ def send_witness_named(*, witness_email: str, vault_id: str) -> bool:
     html = _layout(
         "You’re a witness",
         f"""
-        <p>You’ve been named as a <strong>witness</strong> for vault <strong>{vault_id}</strong>.</p>
+        <p>You’ve been named as a <strong>witness</strong> for vault <strong>{_e(vault_id)}</strong>.</p>
         <p>You cannot decrypt the contents. You’ll only be notified if/when the vault triggers.</p>
         """,
     )
@@ -169,8 +202,8 @@ def send_ping_rotated(
     html = _layout(
         "Check-in confirmed — new link",
         f"""
-        <p>Vault <strong>{vault_id}</strong> next deadline: <strong>{due}</strong>.</p>
-        <p><a href="{ping_url}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Save new check-in link</a></p>
+        <p>Vault <strong>{_e(vault_id)}</strong> next deadline: <strong>{_e(due)}</strong>.</p>
+        <p><a href="{_e(ping_url)}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Save new check-in link</a></p>
         """,
     )
     return _send(
@@ -193,9 +226,9 @@ def send_deadline_reminder(
     html = _layout(
         title,
         f"""
-        <p>Vault <strong>{vault_id}</strong> deadline: <strong>{due}</strong>.</p>
+        <p>Vault <strong>{_e(vault_id)}</strong> deadline: <strong>{_e(due)}</strong>.</p>
         <p>Use your latest check-in link from email or the dashboard.</p>
-        <p><a href="{FRONTEND_URL}/ping" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Go to check-in</a></p>
+        <p><a href="{_e(FRONTEND_URL)}/ping" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Go to check-in</a></p>
         """,
     )
     return _send(
@@ -211,22 +244,28 @@ def send_vault_triggered_recipient(
     recipient_email: str,
     vault_id: str,
     is_dry_run: bool = False,
+    has_attachments: bool = False,
 ) -> bool:
-    path = f"{FRONTEND_URL}/unlock/{vault_id}"
+    path = f"{FRONTEND_URL}/unlock/{quote(str(vault_id), safe='')}"
     dry = " (dry-run)" if is_dry_run else ""
+    notice_html, notice_text = _untrusted_file_notice(has_file=has_attachments)
     html = _layout(
         f"Vault released to you{dry}",
         f"""
-        <p>Vault <strong>{vault_id}</strong> is <strong>TRIGGERED</strong>.</p>
-        <p>Use your unlock link (with <code>#unlock=</code>) from the earlier email + passphrase.</p>
-        <p><a href="{path}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Open unlock page</a></p>
+        <p>Vault <strong>{_e(vault_id)}</strong> is <strong>TRIGGERED</strong>.</p>
+        <p>Use your unlock link (with <code>#unlock=</code>) from the earlier email and the passphrase.</p>
+        {notice_html}
+        <p><a href="{_e(path)}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Open unlock page</a></p>
         """,
     )
     return _send(
         to=recipient_email,
         subject="CipherSwitch — vault released",
         html=html,
-        text=f"Vault {vault_id} TRIGGERED. Open {path}\n",
+        text=(
+            f"Vault {vault_id} TRIGGERED. Open {path}\n"
+            f"Before you open a file. {notice_text}\n"
+        ),
     )
 
 
@@ -239,7 +278,7 @@ def send_vault_triggered_witness(
     dry = " (dry-run)" if is_dry_run else ""
     html = _layout(
         f"Witness notice — vault triggered{dry}",
-        f"<p>Vault <strong>{vault_id}</strong> has triggered. As a witness you cannot decrypt contents.</p>",
+        f"<p>Vault <strong>{_e(vault_id)}</strong> has triggered. As a witness you cannot decrypt contents.</p>",
     )
     return _send(
         to=witness_email,
@@ -258,7 +297,7 @@ def send_vault_triggered_owner(
     dry = " (dry-run)" if is_dry_run else ""
     html = _layout(
         f"Your vault was triggered{dry}",
-        f"<p>Vault <strong>{vault_id}</strong> is now available to recipients. Check-ins are closed.</p>",
+        f"<p>Vault <strong>{_e(vault_id)}</strong> is now available to recipients. Check-ins are closed.</p>",
     )
     return _send(
         to=owner_email,

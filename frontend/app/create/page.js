@@ -2,13 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { VAULT_TEMPLATES } from "../templates";
+import WidgetSkeleton from "../../components/WidgetSkeleton";
+import { stripeCheckoutUrl } from "../../utils/checkout";
 import {
   buildDashboardUrl,
   buildPingUrl,
   buildUnlockUrl,
   downloadIcsReminder,
+  attachmentLimitError,
   encryptVaultPayload,
   fileToAttachment,
+  MAX_MESSAGE_CHARS,
+  MAX_TITLE_CHARS,
   generateSecureToken,
   scorePassphrase,
   splitPassphrase,
@@ -173,7 +178,11 @@ export default function CreateVaultPage() {
 
   function validate() {
     if (!title.trim()) return "Add a title.";
+    if (title.length > MAX_TITLE_CHARS) return "Title is too long.";
     if (!message.trim()) return "Message cannot be empty.";
+    if (message.length > MAX_MESSAGE_CHARS) return "Message is too long (20,000 characters).";
+    const fileError = attachmentLimitError(files);
+    if (fileError) return fileError;
     if (!strength.ok) return "Passphrase too weak (14+ mixed characters).";
     if (passphrase !== confirmPass) return "Passphrases do not match.";
     if (!ownerEmail.includes("@")) return "Valid owner email required.";
@@ -280,16 +289,15 @@ export default function CreateVaultPage() {
               : "Could not start checkout"
           );
         }
-        window.location.assign(checkoutData.url);
+        window.location.assign(stripeCheckoutUrl(checkoutData.url));
         return;
       }
 
       setStep("encrypting");
+      const fileError = attachmentLimitError(files);
+      if (fileError) throw new Error(fileError);
       const attachments = [];
       for (const f of files) {
-        if (f.size > 1_500_000) {
-          throw new Error(`${f.name} is too large (max ~1.5MB per file for demo).`);
-        }
         attachments.push(await fileToAttachment(f));
       }
 
@@ -483,7 +491,12 @@ export default function CreateVaultPage() {
           </a>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="panel animate-fade-up-1 space-y-7 p-4 sm:p-8">
+        <form onSubmit={handleSubmit} className="panel animate-fade-up-1 space-y-7 p-4 sm:p-8" aria-busy={step === "encrypting" || step === "uploading"}>
+          {step === "encrypting" || step === "uploading" ? (
+            <div className="absolute inset-0 z-10 rounded-xl bg-white p-4 sm:p-8">
+              <WidgetSkeleton label={step === "encrypting" ? "Encrypting your vault" : "Saving your vault"} />
+            </div>
+          ) : null}
           <div>
             <p className="label">Template</p>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -507,28 +520,30 @@ export default function CreateVaultPage() {
 
           <div>
             <label className="label" htmlFor="title">Title</label>
-            <input id="title" className="field" value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} />
+            <input id="title" className="field" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={MAX_TITLE_CHARS} disabled={busy} />
           </div>
 
           <div>
             <label className="label" htmlFor="message">Message</label>
-            <textarea id="message" className="field min-h-[140px]" value={message} onChange={(e) => setMessage(e.target.value)} disabled={busy} />
+            <textarea id="message" className="field min-h-[140px]" value={message} onChange={(e) => setMessage(e.target.value)} maxLength={MAX_MESSAGE_CHARS} disabled={busy} />
           </div>
 
           <div>
             <label className="label" htmlFor="files">Attachments (encrypted) · {money(feeCents.files)} once</label>
+            <p className="mb-2 text-sm text-ink-soft" id="file-limit">
+              Maximum file size is 1.5 MB. You can add up to 3 files, 3 MB combined.
+            </p>
             <input
               id="files"
               type="file"
               multiple
               className="field"
               disabled={busy}
+              aria-describedby="file-limit"
               onChange={(e) => setFiles(Array.from(e.target.files || []))}
             />
             {files.length ? (
-              <p className="mt-2 text-xs text-ink-faint">
-                {files.length} file(s) · max ~1.5MB each in this demo
-              </p>
+              <p className="mt-2 text-xs text-ink-faint">{files.length} selected.</p>
             ) : null}
           </div>
 
@@ -552,7 +567,7 @@ export default function CreateVaultPage() {
             <input id="owner" type="email" className="field" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} disabled={busy} />
             {extraVault ? (
               <p className="mt-2 text-sm text-ink-soft">
-                This email already has a vault. Another one is {extraLabel}, paid once.
+                This email already has an active vault. Another one is {extraLabel}, paid once. Deleting that vault makes the next one free again.
               </p>
             ) : null}
           </div>
@@ -621,17 +636,17 @@ export default function CreateVaultPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-3 sm:items-end">
             <div>
-              <label className="label" htmlFor="interval">Interval (days)</label>
+              <label className="label sm:min-h-10" htmlFor="interval">Interval (days)</label>
               <input id="interval" type="number" min={1} className="field" value={intervalDays} onChange={(e) => setIntervalDays(e.target.value)} disabled={busy} />
             </div>
             <div>
-              <label className="label" htmlFor="grace">Grace (days)</label>
+              <label className="label sm:min-h-10" htmlFor="grace">Grace (days)</label>
               <input id="grace" type="number" min={0} className="field" value={graceDays} onChange={(e) => setGraceDays(e.target.value)} disabled={busy} />
             </div>
             <div>
-              <label className="label" htmlFor="release">Time-lock (optional) · {money(feeCents.time_lock)} once</label>
+              <label className="label sm:min-h-10" htmlFor="release">Time-lock (optional) · {money(feeCents.time_lock)} once</label>
               <input id="release" type="datetime-local" className="field" value={releaseAt} onChange={(e) => setReleaseAt(e.target.value)} disabled={busy} />
             </div>
           </div>

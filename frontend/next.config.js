@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const connectSrc = ["'self'", apiUrl];
+if (/localhost|127\.0\.0\.1/.test(apiUrl)) {
+  connectSrc.push("http://localhost:8000", "http://127.0.0.1:8000");
+}
 
 const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "on" },
@@ -18,7 +22,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: blob:",
-      `connect-src 'self' ${apiUrl} http://localhost:8000 http://127.0.0.1:8000`,
+      `connect-src ${connectSrc.join(" ")}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

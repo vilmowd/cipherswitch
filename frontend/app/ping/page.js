@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import WidgetSkeleton from "../../components/WidgetSkeleton";
 import { buildPingUrl, parseHashParam } from "../../utils/crypto";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -95,11 +96,7 @@ export default function PingPage() {
       </div>
 
       <div className="panel animate-fade-up-1 p-4 sm:p-8">
-        {status === "checking" && (
-          <p className="inline-flex rounded-full px-3 py-1 text-sm font-semibold status-warn">
-            Updating your deadline…
-          </p>
-        )}
+        {status === "checking" && <WidgetSkeleton label="Updating your deadline" />}
 
         {status === "ok" && payload && (
           <div className="animate-scale-in space-y-5">

@@ -2,21 +2,67 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import WidgetSkeleton from "../../components/WidgetSkeleton";
+import { stripeCheckoutUrl } from "../../utils/checkout";
 import {
+  attachmentLimitError,
   decryptVaultPayload,
   downloadIcsReminder,
   encryptVaultPayload,
   fileToAttachment,
+  MAX_MESSAGE_CHARS,
+  MAX_TITLE_CHARS,
   parseHashParam,
 } from "../../utils/crypto";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+function CheckInButton({ vault, now, busy, onCheckIn }) {
+  const due = new Date(vault.next_ping_due);
+  const dueLabel = due.toLocaleString();
+  const graceDays = Number(vault.grace_days) || 0;
+  const graceStart = vault.grace_started_at ? new Date(vault.grace_started_at) : due;
+  const pressBy = new Date(graceStart.getTime() + graceDays * 86400000);
+  const open = vault.status !== "TRIGGERED" && now >= due.getTime();
+
+  if (vault.status === "TRIGGERED") {
+    return (
+      <button type="button" className="btn-primary checkin-faded w-full !py-2 text-sm sm:w-auto" disabled>
+        Released
+      </button>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className="btn-primary checkin-faded w-full !py-2 text-sm sm:w-auto" disabled>
+        Next deadline {dueLabel}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="btn-primary w-full !flex-col !py-2 text-sm sm:w-auto"
+      onClick={() => onCheckIn(vault.vault_id)}
+      disabled={busy}
+    >
+      Check in
+      <span className="text-xs font-medium">
+        {graceDays > 0 ? `Before ${pressBy.toLocaleString()}` : "Deadline passed"}
+      </span>
+    </button>
+  );
+}
 
 export default function DashboardPage() {
   const [token, setToken] = useState("");
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const [notice, setNotice] = useState("");
   const [deleteId, setDeleteId] = useState("");
   const [editingId, setEditingId] = useState("");
@@ -38,12 +84,15 @@ export default function DashboardPage() {
       return;
     }
     setBusy(true);
+    setLoading(true);
     setError("");
     setNotice("");
     try {
-      const res = await fetch(
-        `${API_BASE}/api/vaults/dashboard?access_token=${encodeURIComponent(t)}`
-      );
+      const res = await fetch(`${API_BASE}/api/vaults/dashboard`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner_access_token: t }),
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(
@@ -62,8 +111,19 @@ export default function DashboardPage() {
       setData(null);
     } finally {
       setBusy(false);
+      setLoading(false);
     }
   }, [token]);
+
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const id = window.setInterval(tick, 15000);
+    window.addEventListener("focus", tick);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", tick);
+    };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -154,6 +214,29 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function checkIn(vaultId) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const res = await fetch(`${API_BASE}/api/vaults/${vaultId}/check-in`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner_access_token: token }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof json.detail === "string" ? json.detail : "Check-in failed");
+      }
+      const due = json.next_ping_due ? new Date(json.next_ping_due).toLocaleString() : "";
+      await load(token);
+      setNotice(due ? `Checked in. Next deadline ${due}.` : "Checked in.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Check-in failed");
+      setLoading(false);
+    }
+  }
+
   async function enableTravel(vaultId) {
     const until = prompt("Travel until (YYYY-MM-DD or ISO datetime):");
     if (!until) return;
@@ -177,7 +260,7 @@ export default function DashboardPage() {
           typeof json.detail === "string" ? json.detail : "Could not start checkout"
         );
       }
-      window.location.assign(json.url);
+      window.location.assign(stripeCheckoutUrl(json.url));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
       setBusy(false);
@@ -232,20 +315,35 @@ export default function DashboardPage() {
   }
 
   async function addEditFiles(list) {
+    const fileError = attachmentLimitError(list, editFiles);
+    if (fileError) {
+      setEditError(fileError);
+      return;
+    }
     const next = [...editFiles];
     for (const file of list) {
-      if (file.size > 1_500_000) {
-        setEditError(`${file.name} is too large (max about 1.5MB).`);
-        return;
-      }
       next.push(await fileToAttachment(file));
     }
+    setEditError("");
     setEditFiles(next);
   }
 
   async function saveEdit(vault) {
     if (!editTitle.trim() || !editMessage.trim()) {
       setEditError("Title and message are required.");
+      return;
+    }
+    if (editTitle.length > MAX_TITLE_CHARS) {
+      setEditError("Title is too long.");
+      return;
+    }
+    if (editMessage.length > MAX_MESSAGE_CHARS) {
+      setEditError("Message is too long (20,000 characters).");
+      return;
+    }
+    const fileError = attachmentLimitError([], editFiles);
+    if (fileError) {
+      setEditError(fileError);
       return;
     }
     if (!editPass) {
@@ -293,7 +391,7 @@ export default function DashboardPage() {
           throw new Error(typeof json.detail === "string" ? json.detail : "Could not start checkout");
         }
         setEditPass("");
-        window.location.assign(json.url);
+        window.location.assign(stripeCheckoutUrl(json.url));
         return;
       }
       const res = await fetch(`${API_BASE}/api/vaults/${vault.vault_id}/update`, {
@@ -378,6 +476,9 @@ export default function DashboardPage() {
       </div>
 
       {!data ? (
+        loading ? (
+          <WidgetSkeleton label="Loading your vaults" />
+        ) : (
         <form
           className="panel animate-fade-up-1 space-y-4 p-4 sm:p-6"
           onSubmit={(e) => {
@@ -399,15 +500,16 @@ export default function DashboardPage() {
             <div className="rounded-2xl px-4 py-3 text-sm status-err">{error}</div>
           ) : null}
           <button type="submit" className="btn-primary w-full sm:w-auto" disabled={busy}>
-            {busy ? "Loading…" : "Open dashboard"}
+            Open dashboard
           </button>
         </form>
+        )
       ) : (
         <div className="space-y-6 animate-fade-up-1">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-ink-soft">
-              Signed in as <strong>{data.owner_email}</strong> · {data.vaults.length} vault
-              {data.vaults.length === 1 ? "" : "s"}
+              Signed in as <strong>{data.owner_email}</strong> · {data.vaults.length}{" "}
+              {data.vaults.length === 1 ? "vault" : "vaults"}
             </p>
             <button type="button" className="btn-ghost !py-2 text-sm" onClick={() => load(token)}>
               Refresh
@@ -421,8 +523,15 @@ export default function DashboardPage() {
             <div className="rounded-2xl px-4 py-3 text-sm status-err">{error}</div>
           ) : null}
 
-          {data.vaults.map((v) => (
-            <article key={v.vault_id} className="panel card-hover p-4 sm:p-6">
+          {loading ? (
+            data.vaults.map((v) => <WidgetSkeleton key={v.vault_id} label="Loading vault" />)
+          ) : data.vaults.map((v) => (
+            <article
+              key={v.vault_id}
+              className={`panel relative overflow-hidden p-4 sm:p-6 ${
+                v.status === "TRIGGERED" ? "" : "card-hover"
+              }`}
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-mono text-xs text-ink-faint">{v.vault_id}</p>
@@ -492,10 +601,10 @@ export default function DashboardPage() {
                 </ul>
               </div>
 
+              {v.status === "TRIGGERED" ? null : (
+              <>
               <div className="mt-5 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-                <a href="/ping" className="btn-primary w-full !py-2 text-sm sm:w-auto">
-                  Check in
-                </a>
+                <CheckInButton vault={v} now={now} busy={busy} onCheckIn={checkIn} />
                 <button
                   type="button"
                   className="btn-ghost w-full !py-2 text-sm sm:w-auto"
@@ -591,6 +700,7 @@ export default function DashboardPage() {
                           id={`edit-title-${v.vault_id}`}
                           className="field"
                           value={editTitle}
+                          maxLength={MAX_TITLE_CHARS}
                           onChange={(e) => setEditTitle(e.target.value)}
                         />
                       </div>
@@ -600,6 +710,7 @@ export default function DashboardPage() {
                           id={`edit-message-${v.vault_id}`}
                           className="field min-h-32"
                           value={editMessage}
+                          maxLength={MAX_MESSAGE_CHARS}
                           onChange={(e) => setEditMessage(e.target.value)}
                         />
                       </div>
@@ -629,6 +740,9 @@ export default function DashboardPage() {
                             addEditFiles(list);
                           }}
                         />
+                        <p className="mt-2 text-xs text-ink-faint">
+                          Up to 3 files, 1.5 MB each, 3 MB combined.
+                        </p>
                         {!v.has_attachments && editFiles.length > 0 ? (
                           <p className="mt-2 text-sm text-ink-soft">
                             This vault has no files yet. Adding one is $3, paid once.
@@ -653,6 +767,21 @@ export default function DashboardPage() {
                   {editError ? (
                     <div role="alert" className="rounded-2xl px-4 py-3 text-sm status-err">{editError}</div>
                   ) : null}
+                </div>
+              ) : null}
+              </>
+              )}
+              {v.status === "TRIGGERED" ? (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-white/70 px-6 text-center backdrop-blur-md">
+                  <p className="heading-caps text-2xl text-ink">Vault activated</p>
+                  <button
+                    type="button"
+                    className="btn-primary !py-2 text-sm"
+                    onClick={() => setDeleteId(v.vault_id)}
+                    disabled={busy}
+                  >
+                    Delete vault
+                  </button>
                 </div>
               ) : null}
             </article>

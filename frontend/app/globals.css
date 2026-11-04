@@ -81,6 +81,17 @@ svg {
     box-shadow: none;
   }
 
+  .btn-primary.checkin-faded,
+  .btn-primary.checkin-faded:disabled,
+  .btn-primary.checkin-faded:hover {
+    cursor: not-allowed;
+    opacity: 0.4;
+    background: #d7e4ef;
+    color: #5a6578;
+    border-color: #d7e4ef;
+    box-shadow: none;
+  }
+
   .btn-ghost {
     display: inline-flex;
     align-items: center;
@@ -115,17 +126,26 @@ svg {
   .field {
     width: 100%;
     max-width: 100%;
-    min-height: 48px;
+    height: 3rem;
+    min-height: 3rem;
     border-radius: 8px;
     border: 1px solid #d7dee8;
     background: #ffffff;
-    padding: 0.85rem 0.95rem;
+    padding: 0 0.95rem;
     font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
     /* 16px prevents iOS zoom-on-focus */
     font-size: 16px;
+    line-height: 3rem;
     color: #1a1f2c;
     box-shadow: none;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  textarea.field {
+    height: auto;
+    line-height: 1.5;
+    padding-top: 0.85rem;
+    padding-bottom: 0.85rem;
   }
 
   .field::placeholder {
