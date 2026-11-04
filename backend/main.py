@@ -1085,7 +1085,7 @@ def enable_travel(vault_id: UUID, body: TravelRequest) -> dict:
         "travel_until": until.isoformat(),
         "travel_interval_days": body.travel_interval_days,
         "next_ping_due": next_due.isoformat(),
-        "message": "Travel mode enabled — longer check-in interval until travel_until.",
+        "message": "Travel mode is on. Check-ins use the travel interval until the end date.",
     }
 
 
