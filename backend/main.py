@@ -534,6 +534,7 @@ def start_checkout(body: CheckoutRequest) -> dict:
         raise HTTPException(status_code=400, detail="Nothing to pay for.")
     url = billing.create_checkout(
         purpose="seal_fees",
+        vault_id=body.vault_id,
         fees=fees,
         return_to=body.return_to,
     )
@@ -1062,7 +1063,10 @@ def update_vault(vault_id: UUID, body: VaultUpdateRequest) -> dict:
     )
     paid_session = None
     if needs_fee:
-        paid_session, paid_amounts = billing.paid_fee_amounts(body.checkout_session_id)
+        paid_session, paid_amounts = billing.paid_fee_amounts(
+            body.checkout_session_id,
+            str(vault_id),
+        )
         missing = billing.missing_fees(
             [billing.Fee("files", "Encrypted files", billing.files_cents())],
             paid_amounts,

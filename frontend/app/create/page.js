@@ -360,6 +360,7 @@ export default function CreateVaultPage() {
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 402) setCheckoutSessionId("");
         const detail =
           typeof data.detail === "string"
             ? data.detail

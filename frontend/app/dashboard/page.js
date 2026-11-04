@@ -213,12 +213,16 @@ export default function DashboardPage() {
     }
     if (editPaid) {
       const raw = sessionStorage.getItem("cipherswitch-edit");
-      sessionStorage.removeItem("cipherswitch-edit");
-      if (!raw) {
-        setError("Payment received, but the edited vault was missing. Pay again to add files.");
+      let pending = null;
+      try {
+        pending = raw ? JSON.parse(raw) : null;
+      } catch {
+        pending = null;
+      }
+      if (!pending?.vaultId || !pending?.body || !pending?.token) {
+        setError("Payment received, but the edited vault was missing. Open the vault and save again. You will not be charged again if this payment is still unused.");
       } else {
-        const pending = JSON.parse(raw);
-        setToken(pending.token || "");
+        setToken(pending.token);
         setBusy(true);
         fetch(`${API_BASE}/api/vaults/${pending.vaultId}/update`, {
           method: "POST",
@@ -232,7 +236,9 @@ export default function DashboardPage() {
                 typeof json.detail === "string" ? json.detail : "Could not update the vault"
               );
             }
+            sessionStorage.removeItem("cipherswitch-edit");
             setNotice(json.message || "Vault updated.");
+            window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
             await load(pending.token);
           })
           .catch((err) => {
@@ -241,7 +247,7 @@ export default function DashboardPage() {
           .finally(() => setBusy(false));
       }
     }
-    if (travelCanceled || editPaid || editCanceled) {
+    if (travelCanceled || editCanceled) {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -463,6 +469,7 @@ export default function DashboardPage() {
             purpose: "seal_fees",
             owner_email: data?.owner_email,
             recipient_count: 1,
+            vault_id: vault.vault_id,
             has_attachments: true,
             include_extra_vault: false,
             return_to: "edit",

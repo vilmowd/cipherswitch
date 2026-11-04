@@ -68,6 +68,8 @@ def _secret() -> str:
 
 def _frontend() -> str:
     raw = os.getenv("FRONTEND_URL", "http://localhost:3000").strip().rstrip("/")
+    if raw and not raw.startswith(("http://", "https://")):
+        raw = "https://" + raw.lstrip("/")
     parsed = urlparse(raw)
     if (
         parsed.scheme not in ("http", "https")
@@ -298,7 +300,7 @@ def assert_payment_available(session_id: Optional[str], purpose: str, vault_id: 
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payment could not be verified.",
         ) from exc
-    if session.payment_status != "paid":
+    if session.payment_status != "paid" or (session.currency or "").lower() != "usd":
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Payment is not complete.",
@@ -322,7 +324,10 @@ def assert_payment_available(session_id: Optional[str], purpose: str, vault_id: 
     return session_id
 
 
-def paid_fee_amounts(session_id: Optional[str]) -> tuple[str, dict[str, int]]:
+def paid_fee_amounts(
+    session_id: Optional[str],
+    vault_id: Optional[str] = None,
+) -> tuple[str, dict[str, int]]:
     """Return the session id and the cents paid toward each fee code."""
     if not session_id or not session_id.strip():
         raise HTTPException(
@@ -359,6 +364,11 @@ def paid_fee_amounts(session_id: Optional[str]) -> tuple[str, dict[str, int]]:
             detail="Payment is not complete.",
         )
     meta = session.metadata or {}
+    if vault_id and meta.get("vault_id") and meta.get("vault_id") != str(vault_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Payment does not match this vault.",
+        )
     purpose = meta.get("purpose") or ""
     amount = int(session.amount_total or 0)
     if purpose == "seal_fees":
