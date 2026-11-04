@@ -491,6 +491,13 @@ svg {
     color: #d64545;
     background: #fdecec;
   }
+
+  .break-anywhere {
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
 }
 
 @media (max-width: 767px) {
@@ -506,11 +513,6 @@ svg {
   .btn-primary:hover,
   .btn-ghost:hover {
     transform: none;
-  }
-
-  .break-anywhere {
-    overflow-wrap: anywhere;
-    word-break: break-word;
   }
 }
 

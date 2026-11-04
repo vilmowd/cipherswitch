@@ -134,7 +134,7 @@ export default function PingPage() {
                 <dt className="font-bold uppercase tracking-wide text-ink-faint">
                   New check-in link
                 </dt>
-                <dd className="mt-2 break-anywhere rounded-2xl bg-sky-mist p-3 font-mono text-xs text-sky-deep">
+                <dd className="mt-2 max-w-full min-w-0 break-anywhere rounded-2xl bg-sky-mist p-3 font-mono text-xs text-sky-deep">
                   {newPingUrl}
                 </dd>
               </div>
