@@ -179,6 +179,32 @@ svg {
     pointer-events: none;
   }
 
+  .file-picker-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    border: 0;
+    background: transparent;
+    padding: 0.75rem 0.25rem;
+    font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1a5f8a;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .file-picker-clear:hover {
+    color: #0e3f5e;
+  }
+
+  .file-picker-clear:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
   .file-picker-names {
     min-width: 0;
     flex: 1 1 12rem;
@@ -559,6 +585,7 @@ html[data-a11y-font="readable"] .heading-caps,
 html[data-a11y-font="readable"] .btn-primary,
 html[data-a11y-font="readable"] .btn-ghost,
 html[data-a11y-font="readable"] .file-picker-button,
+html[data-a11y-font="readable"] .file-picker-clear,
 html[data-a11y-font="readable"] .label,
 html[data-a11y-font="readable"] .field {
   font-family: Verdana, "Segoe UI", sans-serif !important;
@@ -601,6 +628,7 @@ html[data-a11y-contrast="high"] .panel,
 html[data-a11y-contrast="high"] .elevated-chip,
 html[data-a11y-contrast="high"] .btn-ghost,
 html[data-a11y-contrast="high"] .file-picker-button,
+html[data-a11y-contrast="high"] .file-picker-clear,
 html[data-a11y-contrast="high"] .date-field,
 html[data-a11y-contrast="high"] .date-pop {
   background: #ffffff !important;
@@ -633,6 +661,7 @@ html[data-a11y-contrast="dark"] .panel,
 html[data-a11y-contrast="dark"] .elevated-chip,
 html[data-a11y-contrast="dark"] .btn-ghost,
 html[data-a11y-contrast="dark"] .file-picker-button,
+html[data-a11y-contrast="dark"] .file-picker-clear,
 html[data-a11y-contrast="dark"] .date-field,
 html[data-a11y-contrast="dark"] .date-pop {
   background: #171d27 !important;

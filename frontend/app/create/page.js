@@ -557,6 +557,10 @@ export default function CreateVaultPage() {
               disabled={busy}
               files={files}
               onChange={(e) => setFiles(Array.from(e.target.files || []))}
+              onClear={() => {
+                setFiles([]);
+                setError((current) => (attachmentLimitError(files) === current ? "" : current));
+              }}
             />
           </div>
 
@@ -606,44 +610,54 @@ export default function CreateVaultPage() {
             </div>
             <div className="space-y-3">
               {recipients.map((r, i) => (
-                <div key={i} className="grid gap-2 rounded-2xl border border-slate-100 p-3 sm:grid-cols-3">
-                  <input
-                    className="field"
-                    placeholder="email"
-                    value={r.email}
-                    onChange={(e) => updateRecipient(i, { email: e.target.value })}
-                    disabled={busy}
-                  />
-                  <select
-                    className="field"
-                    value={r.role}
-                    onChange={(e) =>
-                      updateRecipient(i, {
-                        role: e.target.value,
-                        unlock_token:
-                          e.target.value === "witness"
-                            ? undefined
-                            : r.unlock_token || generateSecureToken(32),
-                      })
-                    }
-                    disabled={busy}
-                  >
-                    <option value="primary">Primary</option>
-                    <option value="backup">Backup</option>
-                    <option value="witness">Witness (notify only)</option>
-                  </select>
-                  <input
-                    className="field"
-                    type="number"
-                    min={0}
-                    title="Release delay days"
-                    placeholder="Delay days"
-                    value={r.release_delay_days}
-                    onChange={(e) =>
-                      updateRecipient(i, { release_delay_days: e.target.value })
-                    }
-                    disabled={busy || r.role === "witness"}
-                  />
+                <div key={i} className="space-y-3 rounded-2xl border border-slate-100 p-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      className="field"
+                      placeholder="email"
+                      value={r.email}
+                      onChange={(e) => updateRecipient(i, { email: e.target.value })}
+                      disabled={busy}
+                    />
+                    <select
+                      className="field"
+                      value={r.role}
+                      onChange={(e) =>
+                        updateRecipient(i, {
+                          role: e.target.value,
+                          unlock_token:
+                            e.target.value === "witness"
+                              ? undefined
+                              : r.unlock_token || generateSecureToken(32),
+                        })
+                      }
+                      disabled={busy}
+                    >
+                      <option value="primary">Primary</option>
+                      <option value="backup">Backup</option>
+                      <option value="witness">Witness (notify only)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label" htmlFor={`delay-${i}`}>
+                      Locked days
+                    </label>
+                    <p className="mb-2 text-sm text-ink-soft" id={`delay-help-${i}`}>
+                      How long the vault stays locked for this recipient after it triggers. 0 sends the message as soon as the vault opens.
+                    </p>
+                    <input
+                      id={`delay-${i}`}
+                      className="field"
+                      type="number"
+                      min={0}
+                      aria-describedby={`delay-help-${i}`}
+                      value={r.release_delay_days}
+                      onChange={(e) =>
+                        updateRecipient(i, { release_delay_days: e.target.value })
+                      }
+                      disabled={busy || r.role === "witness"}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
