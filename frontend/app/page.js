@@ -160,10 +160,8 @@ export default function HomePage() {
     <div>
       <section className="mx-auto grid max-w-6xl items-center gap-12 px-4 pb-16 pt-12 sm:px-8 sm:pb-24 sm:pt-20 lg:grid-cols-[1.05fr_0.95fr] lg:gap-8">
         <div>
-          <h1 className="animate-fade-up max-w-xl text-[2.75rem] font-extrabold leading-[0.95] tracking-tight text-ink sm:text-6xl lg:text-7xl">
-            Dead
-            <br />
-            <span className="text-sky">switch.</span>
+          <h1 className="animate-fade-up text-[2.75rem] font-extrabold leading-[0.95] tracking-tight text-ink sm:text-6xl lg:text-7xl">
+            Dead <span className="text-sky">switch.</span>
           </h1>
           <p className="animate-fade-up-2 mt-6 max-w-md text-base leading-relaxed text-ink-soft sm:text-lg">
             A vault that stays shut until you stop checking in. Encrypted on
