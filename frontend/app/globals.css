@@ -123,6 +123,71 @@ svg {
     transform: none;
   }
 
+  .file-picker {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1rem;
+  }
+
+  .file-picker-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .file-picker-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    border-radius: 8px;
+    border: 1px solid #8ec4e8;
+    background: #f3f9fd;
+    padding: 0.75rem 1.15rem;
+    font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1a5f8a;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .file-picker-button:hover {
+    border-color: #3b8fc9;
+    background: #5da8de;
+    color: #ffffff;
+  }
+
+  .file-picker-input:focus-visible + .file-picker-button {
+    border-color: #5da8de;
+    box-shadow: 0 0 0 4px rgba(93, 168, 222, 0.16);
+  }
+
+  .file-picker-input:disabled + .file-picker-button {
+    cursor: not-allowed;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  .file-picker-names {
+    min-width: 0;
+    flex: 1 1 12rem;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    color: #5a6578;
+    overflow-wrap: anywhere;
+  }
+
   .field {
     width: 100%;
     max-width: 100%;
@@ -339,6 +404,7 @@ html[data-a11y-font="readable"] textarea,
 html[data-a11y-font="readable"] .heading-caps,
 html[data-a11y-font="readable"] .btn-primary,
 html[data-a11y-font="readable"] .btn-ghost,
+html[data-a11y-font="readable"] .file-picker-button,
 html[data-a11y-font="readable"] .label,
 html[data-a11y-font="readable"] .field {
   font-family: Verdana, "Segoe UI", sans-serif !important;
@@ -379,7 +445,8 @@ html[data-a11y-contrast="high"] header,
 html[data-a11y-contrast="high"] footer,
 html[data-a11y-contrast="high"] .panel,
 html[data-a11y-contrast="high"] .elevated-chip,
-html[data-a11y-contrast="high"] .btn-ghost {
+html[data-a11y-contrast="high"] .btn-ghost,
+html[data-a11y-contrast="high"] .file-picker-button {
   background: #ffffff !important;
   color: #000000 !important;
   border-color: #000000 !important;
@@ -408,7 +475,8 @@ html[data-a11y-contrast="dark"] header,
 html[data-a11y-contrast="dark"] footer,
 html[data-a11y-contrast="dark"] .panel,
 html[data-a11y-contrast="dark"] .elevated-chip,
-html[data-a11y-contrast="dark"] .btn-ghost {
+html[data-a11y-contrast="dark"] .btn-ghost,
+html[data-a11y-contrast="dark"] .file-picker-button {
   background: #171d27 !important;
   color: #f7f9fc !important;
   border-color: #d7e0ea !important;

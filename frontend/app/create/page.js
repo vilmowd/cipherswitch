@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { VAULT_TEMPLATES } from "../templates";
+import FilePicker from "../../components/FilePicker";
 import WidgetSkeleton from "../../components/WidgetSkeleton";
 import { apiBase } from "../../utils/api";
 import { stripeCheckoutUrl } from "../../utils/checkout";
@@ -534,18 +535,13 @@ export default function CreateVaultPage() {
             <p className="mb-2 text-sm text-ink-soft" id="file-limit">
               Maximum file size is 1.5 MB. You can add up to 3 files, 3 MB combined.
             </p>
-            <input
+            <FilePicker
               id="files"
-              type="file"
-              multiple
-              className="field"
+              describedBy="file-limit"
               disabled={busy}
-              aria-describedby="file-limit"
+              files={files}
               onChange={(e) => setFiles(Array.from(e.target.files || []))}
             />
-            {files.length ? (
-              <p className="mt-2 text-xs text-ink-faint">{files.length} selected.</p>
-            ) : null}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import FilePicker from "../../components/FilePicker";
 import WidgetSkeleton from "../../components/WidgetSkeleton";
 import { apiBase } from "../../utils/api";
 import { stripeCheckoutUrl } from "../../utils/checkout";
@@ -731,10 +732,10 @@ export default function DashboardPage() {
                             </li>
                           ))}
                         </ul>
-                        <input
-                          className="field mt-2"
-                          type="file"
-                          multiple
+                        <FilePicker
+                          id={`edit-files-${v.vault_id}`}
+                          disabled={busy}
+                          showNames={false}
                           onChange={(e) => {
                             const list = Array.from(e.target.files || []);
                             e.target.value = "";
