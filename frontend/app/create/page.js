@@ -16,11 +16,11 @@ import {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-const emptyRecipient = () => ({
+const emptyRecipient = (role = "primary") => ({
   email: "",
-  role: "primary",
+  role,
   release_delay_days: 0,
-  unlock_token: generateSecureToken(32),
+  unlock_token: "",
 });
 
 export default function CreateVaultPage() {
@@ -39,6 +39,16 @@ export default function CreateVaultPage() {
   const [travelIntervalDays, setTravelIntervalDays] = useState(30);
   const [isDryRun, setIsDryRun] = useState(false);
   const [recipients, setRecipients] = useState([emptyRecipient()]);
+
+  useEffect(() => {
+    setRecipients((current) =>
+      current.map((r) =>
+        r.role === "witness" || r.unlock_token
+          ? r
+          : { ...r, unlock_token: generateSecureToken(32) }
+      )
+    );
+  }, []);
   const [files, setFiles] = useState([]);
   const [splitShares, setSplitShares] = useState(null);
   const [step, setStep] = useState("idle");
@@ -362,7 +372,15 @@ export default function CreateVaultPage() {
               <button
                 type="button"
                 className="text-xs font-bold text-sky"
-                onClick={() => setRecipients((r) => [...r, { ...emptyRecipient(), role: "backup" }])}
+                onClick={() =>
+                  setRecipients((r) => [
+                    ...r,
+                    {
+                      ...emptyRecipient("backup"),
+                      unlock_token: generateSecureToken(32),
+                    },
+                  ])
+                }
               >
                 + Add
               </button>
