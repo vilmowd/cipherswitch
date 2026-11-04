@@ -318,6 +318,14 @@ export default function CreateVaultPage() {
         passphrase
       );
 
+      const asIso = (value, label) => {
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new Error(`The ${label} date could not be read.`);
+        }
+        return parsed.toISOString();
+      };
+
       setStep("uploading");
       const response = await fetch(`${API_BASE}/api/vaults/create`, {
         method: "POST",
@@ -337,8 +345,8 @@ export default function CreateVaultPage() {
           owner_email: ownerEmail.trim(),
           ping_token: nextPing,
           recipients: preparedRecipients,
-          release_at: releaseAt ? new Date(releaseAt).toISOString() : null,
-          travel_until: travelUntil ? new Date(travelUntil).toISOString() : null,
+          release_at: releaseAt ? asIso(releaseAt, "time-lock") : null,
+          travel_until: travelUntil ? asIso(travelUntil, "travel") : null,
           travel_interval_days: travelUntil ? Number(travelIntervalDays) : null,
           is_dry_run: isDryRun,
           has_attachments: attachments.length > 0,

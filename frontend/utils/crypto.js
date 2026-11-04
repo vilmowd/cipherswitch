@@ -515,6 +515,9 @@ export function fileToAttachment(file) {
 
 export function downloadIcsReminder({ title, description, nextPingDue, url }) {
   const dt = new Date(nextPingDue);
+  if (Number.isNaN(dt.getTime())) {
+    throw new Error("That check-in date could not be read.");
+  }
   const stamp = dt.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   const uid = `${Date.now()}@cipherswitch`;
   const ics = [

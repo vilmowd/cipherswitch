@@ -19,6 +19,12 @@ import {
 
 const API_BASE = apiBase(process.env.NEXT_PUBLIC_API_URL);
 
+function toIsoOrEmpty(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString();
+}
+
 function CheckInButton({ vault, now, busy, onCheckIn }) {
   const due = new Date(vault.next_ping_due);
   const dueLabel = due.toLocaleString();
@@ -74,6 +80,10 @@ export default function DashboardPage() {
   const [editFiles, setEditFiles] = useState([]);
   const [editReady, setEditReady] = useState(false);
   const [editError, setEditError] = useState("");
+  const [travelOpen, setTravelOpen] = useState("");
+  const [travelUntil, setTravelUntil] = useState("");
+  const [travelDays, setTravelDays] = useState("30");
+  const [travelSession, setTravelSession] = useState("");
 
   const load = useCallback(async (access) => {
     const raw = (access || token).trim();
@@ -143,20 +153,34 @@ export default function DashboardPage() {
     }
     if (travelPaid) {
       const raw = sessionStorage.getItem("cipherswitch-travel");
-      sessionStorage.removeItem("cipherswitch-travel");
-      if (!raw) {
-        setError("Payment received, but the travel details were missing. Pay again to turn it on.");
+      let pending = null;
+      try {
+        pending = raw ? JSON.parse(raw) : null;
+      } catch {
+        pending = null;
+      }
+      const until = toIsoOrEmpty(pending?.until);
+      const vaultId = pending?.vaultId || params.get("vault") || "";
+      const access = pending?.token || fromHash || "";
+      const days = Number(pending?.days);
+      if (access) {
+        setToken(access);
+        load(access);
+      }
+      if (!until || !vaultId || !access || !Number.isInteger(days) || days < 1) {
+        setTravelOpen(vaultId);
+        setTravelDays(Number.isInteger(days) && days > 0 ? String(days) : "30");
+        setTravelSession(travelPaid);
+        setError("Payment received. Choose the travel end date to turn it on. You will not be charged again.");
       } else {
-        const pending = JSON.parse(raw);
-        setToken(pending.token || "");
         setBusy(true);
-        fetch(`${API_BASE}/api/vaults/${pending.vaultId}/travel`, {
+        fetch(`${API_BASE}/api/vaults/${vaultId}/travel`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            owner_access_token: pending.token,
-            travel_until: new Date(pending.until).toISOString(),
-            travel_interval_days: Number(pending.days),
+            owner_access_token: access,
+            travel_until: until,
+            travel_interval_days: days,
             checkout_session_id: travelPaid,
           }),
         })
@@ -167,10 +191,16 @@ export default function DashboardPage() {
                 typeof json.detail === "string" ? json.detail : "Travel mode failed"
               );
             }
+            sessionStorage.removeItem("cipherswitch-travel");
+            setTravelSession("");
+            setTravelOpen("");
             setNotice(json.message || "Travel mode enabled");
-            await load(pending.token);
+            window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
+            await load(access);
           })
           .catch((err) => {
+            setTravelOpen(vaultId);
+            setTravelSession(travelPaid);
             setError(err instanceof Error ? err.message : "Error");
           })
           .finally(() => setBusy(false));
@@ -210,7 +240,7 @@ export default function DashboardPage() {
           .finally(() => setBusy(false));
       }
     }
-    if (travelPaid || travelCanceled || editPaid || editCanceled) {
+    if (travelCanceled || editPaid || editCanceled) {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -239,11 +269,58 @@ export default function DashboardPage() {
     }
   }
 
-  async function enableTravel(vaultId) {
-    const until = prompt("Travel until (YYYY-MM-DD or ISO datetime):");
-    if (!until) return;
-    const days = Number(prompt("Travel interval days (e.g. 30):", "30"));
-    if (!days) return;
+  async function applyTravel(vaultId, sessionId) {
+    const until = toIsoOrEmpty(travelUntil);
+    const days = Number(travelDays);
+    if (!until || new Date(until).getTime() <= Date.now()) {
+      setError("Choose a travel end date in the future.");
+      return;
+    }
+    if (!Number.isInteger(days) || days < 1) {
+      setError("Enter how many days between check-ins while traveling.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/vaults/${vaultId}/travel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner_access_token: token,
+          travel_until: until,
+          travel_interval_days: days,
+          checkout_session_id: sessionId,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof json.detail === "string" ? json.detail : "Travel mode failed");
+      }
+      sessionStorage.removeItem("cipherswitch-travel");
+      setTravelSession("");
+      setTravelOpen("");
+      setNotice(json.message || "Travel mode enabled");
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
+      await load(token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startTravelCheckout(vaultId) {
+    const until = toIsoOrEmpty(travelUntil);
+    const days = Number(travelDays);
+    if (!until || new Date(until).getTime() <= Date.now()) {
+      setError("Choose a travel end date in the future.");
+      return;
+    }
+    if (!Number.isInteger(days) || days < 1) {
+      setError("Enter how many days between check-ins while traveling.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -613,14 +690,18 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   className="btn-ghost w-full !py-2 text-sm sm:w-auto"
-                  onClick={() =>
-                    downloadIcsReminder({
-                      title: `CipherSwitch check-in`,
-                      description: `Vault ${v.vault_id}`,
-                      nextPingDue: v.next_ping_due,
-                      url: `${window.location.origin}/ping`,
-                    })
-                  }
+                  onClick={() => {
+                    try {
+                      downloadIcsReminder({
+                        title: `CipherSwitch check-in`,
+                        description: `Vault ${v.vault_id}`,
+                        nextPingDue: v.next_ping_due,
+                        url: `${window.location.origin}/ping`,
+                      });
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Could not make the calendar file.");
+                    }
+                  }}
                 >
                   Calendar .ics
                 </button>
@@ -628,7 +709,10 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     className="btn-ghost w-full !py-2 text-sm sm:w-auto"
-                    onClick={() => enableTravel(v.vault_id)}
+                    onClick={() => {
+                      setTravelOpen(v.vault_id);
+                      setError("");
+                    }}
                     disabled={busy}
                   >
                     Travel mode · $5 once
@@ -666,6 +750,46 @@ export default function DashboardPage() {
                   Delete vault
                 </button>
               </div>
+
+              {travelOpen === v.vault_id ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="label" htmlFor={`travel-until-${v.vault_id}`}>Travel until</label>
+                    <input
+                      id={`travel-until-${v.vault_id}`}
+                      type="datetime-local"
+                      className="field"
+                      value={travelUntil}
+                      onChange={(e) => setTravelUntil(e.target.value)}
+                      disabled={busy}
+                    />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor={`travel-days-${v.vault_id}`}>Check-in interval days</label>
+                    <input
+                      id={`travel-days-${v.vault_id}`}
+                      type="number"
+                      min={1}
+                      className="field"
+                      value={travelDays}
+                      onChange={(e) => setTravelDays(e.target.value)}
+                      disabled={busy}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-primary w-full !py-2 text-sm sm:w-auto"
+                    disabled={busy}
+                    onClick={() => (
+                      travelSession
+                        ? applyTravel(v.vault_id, travelSession)
+                        : startTravelCheckout(v.vault_id)
+                    )}
+                  >
+                    {travelSession ? "Turn on travel mode" : "Pay $5 and turn on"}
+                  </button>
+                </div>
+              ) : null}
 
               {editingId === v.vault_id ? (
                 <div className="mt-6 space-y-4 border-t border-slate-200 pt-6">
