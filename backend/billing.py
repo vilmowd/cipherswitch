@@ -124,6 +124,8 @@ def edit_needs_file_fee(*, already_has_files: bool, has_files: bool) -> bool:
 def payload_has_files(body) -> bool:
     if getattr(body, "has_attachments", False):
         return True
+    if getattr(body, "release_files", None):
+        return True
     payload = getattr(body, "encrypted_payload", "") or ""
     return len(payload) > LARGE_PAYLOAD_CHARS
 

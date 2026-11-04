@@ -369,6 +369,9 @@ export default function DashboardPage() {
         salt: encrypted.salt,
         payload_mac: encrypted.payloadMac,
         has_attachments: editFiles.length > 0,
+        release_title: editTitle.trim(),
+        release_message: editMessage,
+        release_files: editFiles.map((file) => ({ name: file.name, data: file.data })),
       };
       if (editFiles.length > 0 && !vault.has_attachments) {
         sessionStorage.setItem(
@@ -743,7 +746,7 @@ export default function DashboardPage() {
                           }}
                         />
                         <p className="mt-2 text-xs text-ink-faint">
-                          Up to 3 files, 1.5 MB each, 3 MB combined.
+                          Only .zip and .rar files. Up to 3 files, 1.5 MB each, 3 MB combined.
                         </p>
                         {!v.has_attachments && editFiles.length > 0 ? (
                           <p className="mt-2 text-sm text-ink-soft">

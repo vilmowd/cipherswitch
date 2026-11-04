@@ -14,17 +14,18 @@ export default function AboutPage() {
       <LegalSection title="How it works">
         <p>
           You write a title and a message, choose a passphrase, and name
-          recipients. CipherSwitch encrypts the title and message on your
-          device before anything is uploaded. The server stores the ciphertext,
-          a salt, and hashes of the check-in and unlock tokens. It does not
-          receive your passphrase or the readable message.
+          recipients. A sealed copy is made in the browser before upload. The
+          server also stores the readable title, the readable message, and any
+          zip or rar files so they can be emailed later. It does not receive
+          or email your passphrase. Recipients are not emailed when you seal
+          the vault.
         </p>
         <p>
           A check-in link pushes the deadline forward and replaces the previous
           link. If the deadline passes, a grace period can start. When the
-          vault triggers, recipients can request the ciphertext and decrypt it
-          with the passphrase you shared with them. A witness can be notified
-          without receiving a way to open the vault.
+          vault triggers, each recipient is emailed the message and the archive
+          files. A witness is notified without receiving the message. A backup
+          recipient can be delayed.
         </p>
       </LegalSection>
       <LegalSection title="What CipherSwitch is not">
@@ -35,9 +36,9 @@ export default function AboutPage() {
           delivery of an email is not guaranteed.
         </p>
         <p>
-          If you lose the passphrase, nobody can recover the message, including
-          the operator of this service. If you stop checking in by mistake, the
-          vault can still open for the people you named.
+          If you lose the passphrase, it cannot be reset. The stored message
+          can still be emailed when the vault triggers. If you stop checking
+          in by mistake, the people you named can still receive it.
         </p>
       </LegalSection>
       <LegalSection title="Who runs it">

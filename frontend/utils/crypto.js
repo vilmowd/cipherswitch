@@ -1,7 +1,8 @@
 /**
- * Client-side zero-knowledge crypto helpers (v2).
+ * Client-side crypto helpers (v2).
  * Argon2id (hash-wasm) → AES-GCM-256 + HMAC-SHA256 integrity.
- * Encrypts message AND title. Server never sees passphrases or plaintext.
+ * The passphrase stays in the browser. A release copy of the message and
+ * archives is uploaded so it can be emailed when the vault triggers.
  */
 
 import { argon2id } from "hash-wasm";
@@ -421,6 +422,39 @@ export const MAX_TOTAL_FILE_BYTES = 3_000_000;
 export const MAX_MESSAGE_CHARS = 20_000;
 export const MAX_TITLE_CHARS = 300;
 
+export function archiveNameError(name) {
+  const lower = String(name || "").toLowerCase();
+  if (!lower.endsWith(".zip") && !lower.endsWith(".rar")) {
+    return "Only .zip and .rar files can be attached.";
+  }
+  return null;
+}
+
+function archiveKind(bytes) {
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    ((bytes[2] === 0x03 && bytes[3] === 0x04) ||
+      (bytes[2] === 0x05 && bytes[3] === 0x06) ||
+      (bytes[2] === 0x07 && bytes[3] === 0x08))
+  ) {
+    return "zip";
+  }
+  if (
+    bytes.length >= 7 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x61 &&
+    bytes[2] === 0x72 &&
+    bytes[3] === 0x21 &&
+    bytes[4] === 0x1a &&
+    bytes[5] === 0x07
+  ) {
+    return "rar";
+  }
+  return "";
+}
+
 export function attachmentLimitError(files, existing = []) {
   const incoming = Array.from(files || []);
   const prior = Array.from(existing || []);
@@ -428,6 +462,21 @@ export function attachmentLimitError(files, existing = []) {
     return `You can attach up to ${MAX_FILES} files.`;
   }
   let total = prior.reduce((sum, file) => sum + Number(file.size || 0), 0);
+  for (const file of [...prior, ...incoming]) {
+    const nameError = archiveNameError(file.name);
+    if (nameError) return nameError;
+    if (typeof file.data === "string") {
+      try {
+        const bytes = fromBase64(file.data).slice(0, 8);
+        const kind = archiveKind(bytes);
+        if (!kind || !String(file.name).toLowerCase().endsWith(`.${kind}`)) {
+          return `${file.name} is not a zip or rar archive.`;
+        }
+      } catch {
+        return `${file.name} could not be read.`;
+      }
+    }
+  }
   for (const file of incoming) {
     if (file.size > MAX_FILE_BYTES) {
       return `${file.name} is too large. Each file can be up to 1.5 MB.`;
@@ -441,16 +490,23 @@ export function attachmentLimitError(files, existing = []) {
 }
 
 export function fileToAttachment(file) {
+  const nameError = archiveNameError(file.name);
+  if (nameError) return Promise.reject(new Error(nameError));
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
     reader.onload = () => {
-      const buffer = reader.result;
+      const bytes = new Uint8Array(reader.result);
+      const kind = archiveKind(bytes.slice(0, 8));
+      if (!kind || !String(file.name).toLowerCase().endsWith(`.${kind}`)) {
+        reject(new Error(`${file.name} is not a zip or rar archive.`));
+        return;
+      }
       resolve({
         name: file.name,
-        mime: file.type || "application/octet-stream",
+        mime: kind === "zip" ? "application/zip" : "application/vnd.rar",
         size: file.size,
-        data: toBase64(buffer),
+        data: toBase64(bytes),
       });
     };
     reader.readAsArrayBuffer(file);

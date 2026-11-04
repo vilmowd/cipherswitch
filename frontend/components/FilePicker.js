@@ -16,6 +16,7 @@ export default function FilePicker({
       <input
         id={id}
         type="file"
+        accept=".zip,.rar,application/zip,application/vnd.rar,application/x-rar-compressed"
         multiple={multiple}
         className="file-picker-input"
         disabled={disabled}

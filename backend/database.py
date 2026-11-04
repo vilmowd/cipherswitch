@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS vaults (
     travel_interval_days    INTEGER,
     is_dry_run              BOOLEAN NOT NULL DEFAULT FALSE,
     has_attachments         BOOLEAN NOT NULL DEFAULT FALSE,
+    release_title           TEXT,
+    release_message         TEXT,
+    release_files           TEXT,
     owner_email             VARCHAR(320) NOT NULL,
     ping_token_hash         VARCHAR(64) NOT NULL UNIQUE,
     owner_access_token_hash VARCHAR(64) NOT NULL UNIQUE,
@@ -62,6 +65,7 @@ CREATE TABLE IF NOT EXISTS recipients (
                         CHECK (role IN ('primary', 'backup', 'witness')),
     unlock_token_hash   VARCHAR(64),
     release_delay_days  INTEGER NOT NULL DEFAULT 0 CHECK (release_delay_days >= 0),
+    content_sent_at     TEXT,
     UNIQUE (vault_id, email)
 );
 
@@ -116,6 +120,9 @@ CREATE TABLE IF NOT EXISTS vaults (
     travel_interval_days    INTEGER,
     is_dry_run              INTEGER NOT NULL DEFAULT 0,
     has_attachments         INTEGER NOT NULL DEFAULT 0,
+    release_title           TEXT,
+    release_message         TEXT,
+    release_files           TEXT,
     owner_email             TEXT NOT NULL,
     ping_token_hash         TEXT NOT NULL UNIQUE,
     owner_access_token_hash TEXT NOT NULL UNIQUE,
@@ -132,6 +139,7 @@ CREATE TABLE IF NOT EXISTS recipients (
                         CHECK (role IN ('primary', 'backup', 'witness')),
     unlock_token_hash   TEXT,
     release_delay_days  INTEGER NOT NULL DEFAULT 0,
+    content_sent_at     TEXT,
     UNIQUE (vault_id, email)
 );
 
@@ -333,6 +341,7 @@ def init_schema() -> None:
                 cleaned = stmt.strip()
                 if cleaned:
                     cur.execute(cleaned)
+            _ensure_release_columns(cur)
         else:
             cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto;")
             # Soft upgrade: if old vaults without owner_access_token_hash, recreate
@@ -351,10 +360,36 @@ def init_schema() -> None:
                 cleaned = stmt.strip()
                 if cleaned:
                     cur.execute(cleaned)
+            _ensure_release_columns(cur)
     logger.info(
         "Database schema initialized (v3, backend=%s)",
         "sqlite" if _USE_SQLITE else "postgres",
     )
+
+
+def _column_names(cur: _CursorAdapter, table: str) -> set[str]:
+    if _USE_SQLITE:
+        cur.execute(f"PRAGMA table_info({table})")
+        return {row["name"] for row in cur.fetchall() if row}
+    cur.execute(
+        """
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = %s
+        """,
+        (table,),
+    )
+    return {row["column_name"] for row in cur.fetchall() if row}
+
+
+def _ensure_release_columns(cur: _CursorAdapter) -> None:
+    """Add release columns on databases created before emails carried the vault."""
+    vault_cols = _column_names(cur, "vaults")
+    for name in ("release_title", "release_message", "release_files"):
+        if name not in vault_cols:
+            cur.execute(f"ALTER TABLE vaults ADD COLUMN {name} TEXT")
+    recipient_cols = _column_names(cur, "recipients")
+    if "content_sent_at" not in recipient_cols:
+        cur.execute("ALTER TABLE recipients ADD COLUMN content_sent_at TEXT")
 
 
 def new_id() -> str:

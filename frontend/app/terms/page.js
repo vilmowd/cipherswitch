@@ -25,8 +25,8 @@ export default function TermsPage() {
           recipients. You are responsible for keeping the passphrase, the
           dashboard code, and the check-in link. The dashboard opens with that
           code, which is emailed to you. Your email address is not the code.
-          Share the passphrase with a recipient yourself. CipherSwitch does not
-          send the passphrase by email and cannot reset it. With the dashboard
+          CipherSwitch does not send the passphrase by email and cannot reset
+          it. Recipients are not emailed when you seal a vault. With the dashboard
           code you can delete the vault, or replace the sealed message and
           files. Deleting cannot be undone.
         </p>
@@ -41,8 +41,9 @@ export default function TermsPage() {
           A vault releases when its rules say it should: the check-in deadline
           and any grace period have passed, a scheduled release time has
           passed, or you force a dry-run trigger. Release depends on the
-          service running, on email delivery, and on the recipient still having
-          their unlock link and the passphrase. Those steps can fail. A missed
+          service running and on email delivery. When it triggers, the email
+          to a recipient contains the message and any zip or rar files. Those
+          steps can fail. A missed
           check-in can also be a mistake. Build the schedule with that in mind.
         </p>
       </LegalSection>
@@ -90,10 +91,10 @@ export default function TermsPage() {
           a recipient into running something harmful.
         </p>
         <p>
-          A vault is encrypted before it is uploaded, so CipherSwitch cannot
-          open a file or scan it. You are responsible for every file you
-          attach. The email a recipient receives says that a file was not
-          scanned and may be unsafe. The operator may disable or
+          Only .zip and .rar files can be attached. CipherSwitch checks that
+          format and does not open the archive or scan what is inside. You are
+          responsible for every file you attach. The release email says that a
+          file was not scanned and may be unsafe. The operator may disable or
           delete a vault that appears to be used to distribute malware.
         </p>
       </LegalSection>

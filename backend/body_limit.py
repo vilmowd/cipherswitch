@@ -6,7 +6,7 @@ This limit stops a direct upload from buffering tens of gigabytes.
 
 from starlette.responses import JSONResponse
 
-MAX_BODY_BYTES = 8_000_000
+MAX_BODY_BYTES = 16_000_000
 MAX_CIPHERTEXT_CHARS = 6_500_000
 TOO_LARGE = "That upload is too large. Each file can be up to 1.5 MB, and 3 MB combined."
 

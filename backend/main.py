@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -17,6 +18,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
+import archives
 import billing
 import body_limit
 import database as db
@@ -51,6 +53,11 @@ class RecipientIn(BaseModel):
         return value.strip() if value else value
 
 
+class ReleaseFileIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    data: str = Field(..., min_length=4, max_length=2_100_000)
+
+
 class VaultCreateRequest(BaseModel):
     encrypted_title: str = Field(..., min_length=16, max_length=8192)
     encrypted_payload: str = Field(..., min_length=16, max_length=body_limit.MAX_CIPHERTEXT_CHARS)
@@ -71,6 +78,9 @@ class VaultCreateRequest(BaseModel):
     travel_interval_days: Optional[int] = Field(default=None, ge=1, le=3650)
     is_dry_run: bool = False
     has_attachments: bool = False
+    release_title: str = Field(..., min_length=1, max_length=300)
+    release_message: str = Field(..., min_length=1, max_length=20_000)
+    release_files: list[ReleaseFileIn] = Field(default_factory=list, max_length=3)
     checkout_session_id: Optional[str] = Field(default=None, max_length=255)
 
     @field_validator(
@@ -227,6 +237,9 @@ class VaultUpdateRequest(BaseModel):
     salt: str = Field(..., min_length=8, max_length=128)
     payload_mac: str = Field(..., min_length=16, max_length=256)
     has_attachments: bool = False
+    release_title: str = Field(..., min_length=1, max_length=300)
+    release_message: str = Field(..., min_length=1, max_length=20_000)
+    release_files: list[ReleaseFileIn] = Field(default_factory=list, max_length=3)
     checkout_session_id: Optional[str] = Field(default=None, max_length=255)
 
     @field_validator(
@@ -247,6 +260,18 @@ class VaultUpdateRequest(BaseModel):
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _release_copy(body) -> tuple[str, str, str, bool]:
+    try:
+        files = archives.normalize_files(body.release_files)
+    except archives.ArchiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    title = body.release_title.strip()
+    message = body.release_message.strip()
+    if not title or not message:
+        raise HTTPException(status_code=400, detail="Title and message are required.")
+    return title, message, json.dumps(files), bool(files)
 
 
 def _hash_token(token: str) -> str:
@@ -547,6 +572,8 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
     now = _utcnow()
     next_due = now + timedelta(days=body.interval_days)
     vault_id = db.new_vault_id()
+    release_title, release_message, release_files, release_has_files = _release_copy(body)
+    stored_has_files = release_has_files or body.has_attachments
 
     insert_sql = """
         INSERT INTO vaults (
@@ -554,11 +581,12 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
             salt, payload_mac, kdf, crypto_version, status, template_id,
             interval_days, grace_days, next_ping_due, last_ping_at,
             release_at, travel_until, travel_interval_days, is_dry_run,
-            has_attachments, owner_email, ping_token_hash, owner_access_token_hash,
+            has_attachments, release_title, release_message, release_files,
+            owner_email, ping_token_hash, owner_access_token_hash,
             created_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ACTIVE', %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         RETURNING id, next_ping_due, status
     """
@@ -581,7 +609,10 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
         _sql_val(body.travel_until),
         body.travel_interval_days,
         1 if body.is_dry_run and db.is_sqlite() else body.is_dry_run,
-        1 if body.has_attachments and db.is_sqlite() else body.has_attachments,
+        1 if stored_has_files and db.is_sqlite() else stored_has_files,
+        release_title,
+        release_message,
+        release_files,
         owner_email,
         ping_hash,
         owner_access_hash,
@@ -695,22 +726,6 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
         owner_access_token=owner_access,
         is_dry_run=body.is_dry_run,
     )
-    for rec in body.recipients:
-        if rec.role == "witness":
-            email_service.send_witness_named(
-                witness_email=str(rec.email).lower(),
-                vault_id=str(row["id"]),
-            )
-        else:
-            email_service.send_vault_created_recipient(
-                recipient_email=str(rec.email).lower(),
-                vault_id=str(row["id"]),
-                unlock_token=rec.unlock_token or "",
-                role=rec.role,
-                release_delay_days=rec.release_delay_days,
-                is_dry_run=body.is_dry_run,
-                has_attachments=billing.payload_has_files(body),
-            )
 
     return VaultCreateResponse(
         vault_id=row["id"],
@@ -1001,33 +1016,18 @@ def dry_run_trigger(vault_id: UUID, body: DryRunTriggerRequest) -> dict:
         """,
         (_sql_val(now), str(vault_id)),
     )
-    recs = db.fetch_all(
-        "SELECT email, role FROM recipients WHERE vault_id = %s",
-        (str(vault_id),),
-    )
-    for r in recs:
-        if r["role"] == "witness":
-            email_service.send_vault_triggered_witness(
-                witness_email=r["email"],
-                vault_id=str(vault_id),
-                is_dry_run=True,
-            )
-        else:
-            email_service.send_vault_triggered_recipient(
-                recipient_email=r["email"],
-                vault_id=str(vault_id),
-                is_dry_run=True,
-                has_attachments=bool(vault.get("has_attachments")),
-            )
     email_service.send_vault_triggered_owner(
         owner_email=vault["owner_email"],
         vault_id=str(vault_id),
         is_dry_run=True,
     )
+    from worker import deliver_pending_releases
+
+    deliver_pending_releases()
     return {
         "vault_id": str(vault_id),
         "status": "TRIGGERED",
-        "message": "Dry-run trigger fired. Recipients can unlock with their links + passphrase.",
+        "message": "Dry-run trigger fired. Recipients are emailed the message and archive files.",
     }
 
 
@@ -1073,6 +1073,8 @@ def update_vault(vault_id: UUID, body: VaultUpdateRequest) -> dict:
                 detail=f"Adding files is {billing.catalog()['files']['label']}, paid once.",
             )
     now = _utcnow()
+    release_title, release_message, release_files, release_has_files = _release_copy(body)
+    has_files = has_files or release_has_files
     try:
         with db.get_cursor(commit=True) as cur:
             cur.execute(
@@ -1084,7 +1086,10 @@ def update_vault(vault_id: UUID, body: VaultUpdateRequest) -> dict:
                     title_iv = %s,
                     salt = %s,
                     payload_mac = %s,
-                    has_attachments = %s
+                    has_attachments = %s,
+                    release_title = %s,
+                    release_message = %s,
+                    release_files = %s
                 WHERE id = %s AND owner_access_token_hash = %s
                 """,
                 (
@@ -1095,6 +1100,9 @@ def update_vault(vault_id: UUID, body: VaultUpdateRequest) -> dict:
                     body.salt,
                     body.payload_mac,
                     1 if has_files and db.is_sqlite() else has_files,
+                    release_title,
+                    release_message,
+                    release_files,
                     str(vault_id),
                     _hash_token(body.owner_access_token.strip()),
                 ),

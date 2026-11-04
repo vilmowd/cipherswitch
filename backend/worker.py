@@ -156,48 +156,70 @@ def hard_trigger_vaults() -> int:
             """,
             (_sql_val(now), str(vault["id"])),
         )
-        _notify_triggered(vault)
+        _notify_owner(vault)
         count += 1
         logger.warning("Vault TRIGGERED id=%s dry_run=%s", vault["id"], vault.get("is_dry_run"))
 
     return count
 
 
-def _notify_triggered(vault: dict[str, Any]) -> None:
-    vault_id = str(vault["id"])
-    is_dry = bool(vault.get("is_dry_run"))
-    recs = db.fetch_all(
-        "SELECT email, role FROM recipients WHERE vault_id = %s",
-        (vault_id,),
+def _notify_owner(vault: dict[str, Any]) -> None:
+    email_service.send_vault_triggered_owner(
+        owner_email=vault["owner_email"],
+        vault_id=str(vault["id"]),
+        is_dry_run=bool(vault.get("is_dry_run")),
     )
-    if not recs:
-        # Legacy fallback
-        if vault.get("recipient_email"):
-            email_service.send_vault_triggered_recipient(
-                recipient_email=vault["recipient_email"],
-                vault_id=vault_id,
-                is_dry_run=is_dry,
-                has_attachments=bool(vault.get("has_attachments")),
-            )
-    for r in recs:
-        if r["role"] == "witness":
-            email_service.send_vault_triggered_witness(
-                witness_email=r["email"],
+
+
+def deliver_pending_releases() -> int:
+    """Email recipients only after a vault has triggered, honoring a release delay."""
+    now = _utcnow()
+    rows = db.fetch_all(
+        """
+        SELECT r.id AS recipient_id, r.email, r.role, r.release_delay_days,
+               v.id AS vault_id, v.release_title, v.release_message, v.release_files,
+               v.is_dry_run, v.triggered_at, v.has_attachments
+        FROM recipients r
+        JOIN vaults v ON v.id = r.vault_id
+        WHERE v.status = 'TRIGGERED' AND r.content_sent_at IS NULL
+        """
+    )
+    sent = 0
+    for row in rows:
+        delay = int(row.get("release_delay_days") or 0)
+        triggered = _opt_dt(row.get("triggered_at"))
+        if row["role"] != "witness" and delay > 0 and triggered and now < triggered + timedelta(days=delay):
+            continue
+        vault_id = str(row["vault_id"])
+        is_dry = bool(row.get("is_dry_run"))
+        if row["role"] == "witness":
+            ok = email_service.send_vault_triggered_witness(
+                witness_email=row["email"],
                 vault_id=vault_id,
                 is_dry_run=is_dry,
             )
         else:
-            email_service.send_vault_triggered_recipient(
-                recipient_email=r["email"],
+            ok = email_service.send_vault_triggered_recipient(
+                recipient_email=row["email"],
                 vault_id=vault_id,
                 is_dry_run=is_dry,
-                has_attachments=bool(vault.get("has_attachments")),
+                has_attachments=bool(row.get("has_attachments")),
+                title=row.get("release_title") or "",
+                message=row.get("release_message") or "",
+                files_json=row.get("release_files") or "",
             )
-    email_service.send_vault_triggered_owner(
-        owner_email=vault["owner_email"],
-        vault_id=vault_id,
-        is_dry_run=is_dry,
-    )
+        if not ok:
+            continue
+        db.execute(
+            """
+            UPDATE recipients
+            SET content_sent_at = %s
+            WHERE id = %s AND content_sent_at IS NULL
+            """,
+            (now.isoformat(), str(row["recipient_id"])),
+        )
+        sent += 1
+    return sent
 
 
 def run_loop() -> None:
@@ -215,8 +237,9 @@ def run_loop() -> None:
             r = send_upcoming_reminders()
             g = enter_grace_period()
             t = hard_trigger_vaults()
-            if r or g or t:
-                logger.info("tick reminders=%s grace=%s triggered=%s", r, g, t)
+            d = deliver_pending_releases()
+            if r or g or t or d:
+                logger.info("tick reminders=%s grace=%s triggered=%s released=%s", r, g, t, d)
         except Exception:  # noqa: BLE001
             logger.exception("Worker iteration failed")
 

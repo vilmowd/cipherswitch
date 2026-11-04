@@ -13,8 +13,8 @@ const STEPS = [
   },
   {
     n: "03",
-    title: "They unlock",
-    body: "After it triggers, they open it with their unlock link and the shared passphrase.",
+    title: "They receive it",
+    body: "Nothing is emailed when you seal it. When it triggers, the email contains the message and the archive files.",
   },
 ];
 
@@ -41,7 +41,7 @@ const KINDS = [
   },
   {
     title: "Files",
-    body: "Attachments are sealed before they are stored, the same way as the message.",
+    body: "Only zip and rar archives. They stay unsent until the vault triggers, then they are attached to the release email.",
   },
 ];
 
@@ -70,8 +70,8 @@ const WHY = [
     body: "A passphrase and a private link. Nothing to log into, and nothing for us to reset.",
   },
   {
-    title: "Encrypted first",
-    body: "The title, the message, and the files are sealed in the browser before upload.",
+    title: "Emailed only on release",
+    body: "Recipients hear nothing when you seal a vault. The message and archives are emailed only after it triggers.",
   },
   {
     title: "Silence, not a request",
@@ -86,7 +86,7 @@ const WHY = [
 const RISKS = [
   {
     title: "A lost passphrase is gone",
-    body: "We never see the message, so we cannot recover it. Share the passphrase only with the person who should open it.",
+    body: "The passphrase is never stored or emailed. The message is kept so it can be sent when the vault triggers.",
   },
   {
     title: "A missed check-in still counts",
@@ -98,7 +98,7 @@ const RISKS = [
   },
   {
     title: "Email can fail",
-    body: "Release depends on the note reaching your recipient. Keep the unlock link somewhere they can find it.",
+    body: "Release depends on the email reaching your recipient. A backup recipient can be set to receive it later than the first.",
   },
 ];
 
@@ -106,7 +106,7 @@ const NEVER = [
   "Passphrases never leave the browser",
   "Titles are encrypted like the message",
   "Check-in tokens rotate after every ping",
-  "Unlock needs a recipient token and the passphrase",
+  "Recipients are emailed only after the vault triggers",
   "The payload stays withheld until the vault triggers",
   "An HMAC check runs before anything decrypts",
 ];
@@ -164,8 +164,8 @@ export default function HomePage() {
             Dead <span className="text-sky">switch.</span>
           </h1>
           <p className="animate-fade-up-2 mt-6 max-w-md text-base leading-relaxed text-ink-soft sm:text-lg">
-            A vault that stays shut until you stop checking in. Sealed before
-            it is stored. Released only by silence.
+            A vault that stays shut until you stop checking in. The message
+            and archive files are emailed only after it triggers.
           </p>
           <div className="animate-fade-up-3 mt-8 hidden items-center gap-3 md:flex">
             <a href="/create" className="btn-primary">
@@ -232,8 +232,8 @@ export default function HomePage() {
           </h2>
           <div>
             <p className="max-w-md text-base leading-relaxed text-ink-soft">
-              Three steps. No account. The server never sees the words, the
-              passphrase, or the keys.
+              Three steps. No account. The passphrase stays on this device.
+              The message is emailed only after the vault triggers.
             </p>
             <ol className="mt-8 divide-y divide-slate-200 border-y border-slate-200">
               {STEPS.map((step) => (

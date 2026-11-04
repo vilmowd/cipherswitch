@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime
@@ -27,7 +28,14 @@ def is_configured() -> bool:
     return bool(RESEND_API_KEY)
 
 
-def _send(*, to: str, subject: str, html: str, text: str) -> bool:
+def _send(
+    *,
+    to: str,
+    subject: str,
+    html: str,
+    text: str,
+    attachments: Optional[list[dict[str, str]]] = None,
+) -> bool:
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set — skip email to=%s subject=%s", to, subject)
         return False
@@ -35,15 +43,16 @@ def _send(*, to: str, subject: str, html: str, text: str) -> bool:
         import resend
 
         resend.api_key = RESEND_API_KEY
-        result = resend.Emails.send(
-            {
-                "from": EMAIL_FROM,
-                "to": [to],
-                "subject": subject,
-                "html": html,
-                "text": text,
-            }
-        )
+        payload: dict = {
+            "from": EMAIL_FROM,
+            "to": [to],
+            "subject": subject,
+            "html": html,
+            "text": text,
+        }
+        if attachments:
+            payload["attachments"] = attachments
+        result = resend.Emails.send(payload)
         logger.info("Email sent to=%s id=%s", to, getattr(result, "id", result))
         return True
     except Exception:  # noqa: BLE001
@@ -239,33 +248,74 @@ def send_deadline_reminder(
     )
 
 
+def _release_attachments(files_json: str) -> list[dict[str, str]]:
+    if not files_json:
+        return []
+    try:
+        parsed = json.loads(files_json)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    attachments = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        data = str(item.get("data") or "").strip()
+        if name and data:
+            attachments.append({"filename": name, "content": data})
+    return attachments
+
+
 def send_vault_triggered_recipient(
     *,
     recipient_email: str,
     vault_id: str,
     is_dry_run: bool = False,
     has_attachments: bool = False,
+    title: str = "",
+    message: str = "",
+    files_json: str = "",
 ) -> bool:
-    path = f"{FRONTEND_URL}/unlock/{quote(str(vault_id), safe='')}"
     dry = " (dry-run)" if is_dry_run else ""
-    notice_html, notice_text = _untrusted_file_notice(has_file=has_attachments)
+    attachments = _release_attachments(files_json)
+    notice_html, notice_text = _untrusted_file_notice(has_file=bool(attachments) or has_attachments)
+    heading = " ".join(title.split())[:80] or "Vault released"
+    if message.strip():
+        body = (
+            f"<p style=\"white-space:pre-wrap;color:#1a1f2c;\">{_e(message)}</p>"
+            + (
+                "<p>The archive files are attached to this email.</p>"
+                if attachments
+                else ""
+            )
+        )
+        text = message + ("\n\nThe archive files are attached.\n" if attachments else "\n")
+    else:
+        body = (
+            "<p>This vault triggered, but it was sealed before the release email "
+            "included the message. Use the unlock link from the email you received "
+            "when it was created, and the passphrase shared with you.</p>"
+        )
+        text = (
+            f"Vault {vault_id} triggered. This seal has no release copy in the email. "
+            "Use the earlier unlock link and the passphrase.\n"
+        )
     html = _layout(
-        f"Vault released to you{dry}",
+        f"{_e(heading)}{dry}",
         f"""
-        <p>Vault <strong>{_e(vault_id)}</strong> is <strong>TRIGGERED</strong>.</p>
-        <p>Use your unlock link (with <code>#unlock=</code>) from the earlier email and the passphrase.</p>
+        <p>Vault <strong>{_e(vault_id)}</strong> is released.</p>
+        {body}
         {notice_html}
-        <p><a href="{_e(path)}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Open unlock page</a></p>
         """,
     )
     return _send(
         to=recipient_email,
-        subject="CipherSwitch — vault released",
+        subject=f"CipherSwitch — {heading}",
         html=html,
-        text=(
-            f"Vault {vault_id} TRIGGERED. Open {path}\n"
-            f"Before you open a file. {notice_text}\n"
-        ),
+        text=f"{heading}\nVault {vault_id} released.\n{text}Before you open a file. {notice_text}\n",
+        attachments=attachments or None,
     )
 
 

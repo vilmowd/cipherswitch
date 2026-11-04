@@ -342,6 +342,9 @@ export default function CreateVaultPage() {
           travel_interval_days: travelUntil ? Number(travelIntervalDays) : null,
           is_dry_run: isDryRun,
           has_attachments: attachments.length > 0,
+          release_title: title.trim(),
+          release_message: message,
+          release_files: attachments.map((file) => ({ name: file.name, data: file.data })),
           checkout_session_id: checkoutSessionId || null,
         }),
       });
@@ -388,8 +391,8 @@ export default function CreateVaultPage() {
           Seal a vault
         </h1>
         <p className="mt-3 max-w-xl text-ink-soft">
-          Templates, attachments, multi-recipient, travel mode, time-lock, and
-          dry-run — all encrypted in your browser.
+          Recipients are not emailed until the vault triggers. Attachments must
+          be .zip or .rar files.
         </p>
       </div>
 
@@ -461,6 +464,9 @@ export default function CreateVaultPage() {
 
           <div className="space-y-3">
             <p className="label">Recipient unlock links</p>
+            <p className="text-sm text-ink-soft">
+              These links are not emailed. When the vault triggers, each recipient is emailed the message and the archive files.
+            </p>
             {(result.recipients || [])
               .filter((r) => r.role !== "witness")
               .map((r) => {
@@ -533,7 +539,7 @@ export default function CreateVaultPage() {
           <div>
             <label className="label" htmlFor="files">Attachments (encrypted) · {money(feeCents.files)} once</label>
             <p className="mb-2 text-sm text-ink-soft" id="file-limit">
-              Maximum file size is 1.5 MB. You can add up to 3 files, 3 MB combined.
+              Only .zip and .rar files. Maximum file size is 1.5 MB. You can add up to 3 files, 3 MB combined.
             </p>
             <FilePicker
               id="files"

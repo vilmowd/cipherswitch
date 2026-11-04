@@ -13,25 +13,29 @@ export default function PrivacyPage() {
     >
       <LegalSection title="What never reaches the server">
         <p>
-          Your passphrase, the readable title, and the readable message are
-          encrypted in your browser. They are not sent to the server, and they
-          are not included in email. If the passphrase is lost, the message
-          cannot be restored from the stored ciphertext.
+          Your passphrase is entered in the browser and is not sent to the
+          server, stored, or included in email. If the passphrase is lost, it
+          cannot be reset. A sealed copy of the vault is still encrypted in
+          the browser before upload.
         </p>
       </LegalSection>
-      <LegalSection title="Files that cannot be scanned">
+      <LegalSection title="What is kept for the release email">
         <p>
-          A file is encrypted in the browser before upload. CipherSwitch cannot
-          open it, scan it, or tell a document from a harmful program. Using
-          the service to distribute malware is prohibited. The email a
-          recipient receives warns that a file may be unsafe and that they
-          should not open it unless they trust the sender.
+          The readable title, the readable message, and any archive files are
+          stored so they can be emailed when the vault triggers. They are not
+          emailed when the vault is created. Only .zip and .rar files can be
+          attached. CipherSwitch checks that format and does not open the
+          archive or scan what is inside. Using the service to distribute
+          malware is prohibited. The release email warns that a file may be
+          unsafe and that the recipient should not open it unless they trust
+          the sender.
         </p>
       </LegalSection>
       <LegalSection title="What the server stores">
         <p>When you create a vault, the service stores:</p>
         <ul className="list-disc space-y-1 pl-5">
-          <li>the encrypted title and encrypted message, plus the salt, initialization vectors, and integrity check</li>
+          <li>the readable title, the readable message, and any zip or rar files, so the release email can contain them</li>
+          <li>a sealed copy of the title and message, plus the salt, initialization vectors, and integrity check</li>
           <li>the owner email address and each recipient’s email address and role</li>
           <li>SHA-256 hashes of the check-in token, the dashboard token, and any unlock token</li>
           <li>schedule details such as the check-in interval, grace period, travel window, release time, template name, and whether the vault is a dry run</li>
@@ -62,10 +66,12 @@ export default function PrivacyPage() {
       <LegalSection title="Email delivery">
         <p>
           Transactional email is sent through Resend when an API key is
-          configured. Resend receives the recipient address, the subject, and
-          the message, which includes vault links. Resend’s own terms and
-          privacy notice apply to that delivery. If no email key is configured,
-          those messages are not sent.
+          configured. The owner receives the dashboard code and check-in mail
+          when a vault is sealed. A recipient is not emailed then. When the
+          vault triggers, Resend receives that recipient’s address and an
+          email containing the title, the message, and any archive files.
+          Resend’s own terms and privacy notice apply to that delivery. If no
+          email key is configured, those messages are not sent.
         </p>
         <p>
           One-time payments are processed by Stripe. Stripe receives the card
@@ -93,8 +99,9 @@ export default function PrivacyPage() {
       <LegalSection title="How long it is kept">
         <p>
           The owner can delete a vault from the dashboard with the dashboard
-          code. Deletion removes the ciphertext and the stored email addresses
-          for that vault. It cannot erase a message already delivered to an
+          code. Deletion removes the message, the archive files, the sealed
+          copy, and the stored email addresses for that vault. It cannot erase
+          a message already delivered to an
           inbox, and it cannot undo a file a recipient already downloaded. The
           operator of this deployment can also remove a vault from the database
           they control.
