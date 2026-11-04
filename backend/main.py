@@ -668,7 +668,14 @@ def create_vault(body: VaultCreateRequest, background: BackgroundTasks) -> Vault
     owner_access = _new_token()
     owner_access_hash = _hash_token(owner_access)
     now = _utcnow()
-    next_due = now + timedelta(days=body.interval_days)
+    check_in_days = body.interval_days
+    if body.travel_until and body.travel_interval_days:
+        travel_end = body.travel_until
+        if travel_end.tzinfo is None:
+            travel_end = travel_end.replace(tzinfo=timezone.utc)
+        if travel_end > now:
+            check_in_days = body.travel_interval_days
+    next_due = now + timedelta(days=check_in_days)
     vault_id = db.new_vault_id()
     release_title, release_message, release_files, release_has_files = _release_copy(body)
     stored_has_files = release_has_files or body.has_attachments
@@ -821,7 +828,7 @@ def create_vault(body: VaultCreateRequest, background: BackgroundTasks) -> Vault
         vault_id=str(row["id"]),
         ping_token=body.ping_token,
         next_ping_due=next_due_parsed,
-        interval_days=body.interval_days,
+        interval_days=check_in_days,
         owner_access_token=owner_access,
         is_dry_run=body.is_dry_run,
     )

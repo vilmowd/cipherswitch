@@ -24,6 +24,7 @@ import {
 
 const API_BASE = apiBase(process.env.NEXT_PUBLIC_API_URL);
 const DRAFT_KEY = "cipherswitch-seal-draft";
+const PAID_KEY = "cipherswitch-paid";
 
 const emptyRecipient = (role = "primary") => ({
   email: "",
@@ -76,14 +77,18 @@ export default function CreateVaultPage() {
   const [extraLabel, setExtraLabel] = useState("$12");
   const [extraVault, setExtraVault] = useState(false);
   const [paidNote, setPaidNote] = useState(false);
+  const [paidForFiles, setPaidForFiles] = useState(false);
 
   const strength = useMemo(() => scorePassphrase(passphrase), [passphrase]);
   const busy = step === "encrypting" || step === "uploading";
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const paid = params.get("paid");
+    const returned = params.get("paid");
     const canceled = params.get("canceled");
+    const paid = canceled ? "" : returned || sessionStorage.getItem(PAID_KEY) || "";
+    if (returned) sessionStorage.setItem(PAID_KEY, returned);
+    if (canceled) sessionStorage.removeItem(PAID_KEY);
     if (paid || canceled) {
       const raw = sessionStorage.getItem(DRAFT_KEY);
       if (raw) {
@@ -99,6 +104,7 @@ export default function CreateVaultPage() {
           if (typeof draft.travelUntil === "string") setTravelUntil(draft.travelUntil);
           if (draft.travelIntervalDays) setTravelIntervalDays(draft.travelIntervalDays);
           if (typeof draft.isDryRun === "boolean") setIsDryRun(draft.isDryRun);
+          if (draft.paidForFiles) setPaidForFiles(true);
           if (Array.isArray(draft.recipients) && draft.recipients.length) {
             setRecipients(
               draft.recipients.map((r) => ({
@@ -230,6 +236,7 @@ export default function CreateVaultPage() {
         travelUntil,
         travelIntervalDays,
         isDryRun,
+        paidForFiles: files.length > 0,
         recipients: recipients.map((r) => ({
           email: r.email,
           role: r.role,
@@ -360,7 +367,10 @@ export default function CreateVaultPage() {
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        if (response.status === 402) setCheckoutSessionId("");
+        if (response.status === 402) {
+          setCheckoutSessionId("");
+          sessionStorage.removeItem(PAID_KEY);
+        }
         const detail =
           typeof data.detail === "string"
             ? data.detail
@@ -371,8 +381,23 @@ export default function CreateVaultPage() {
       }
 
       sessionStorage.removeItem(DRAFT_KEY);
+      sessionStorage.removeItem(PAID_KEY);
+      const sealedTools = [];
+      if (anotherVault) sealedTools.push("Another vault is sealed for this email.");
+      if (preparedRecipients.length > 1) {
+        sealedTools.push(`${preparedRecipients.length} recipients will be emailed when the vault triggers.`);
+      }
+      if (attachments.length) sealedTools.push("Encrypted files are attached and will be sent with the message.");
+      if (releaseAt) {
+        sealedTools.push(`Time-lock is on until ${new Date(releaseAt).toLocaleString()}.`);
+      }
+      if (travelUntil) {
+        sealedTools.push(
+          `Travel mode is on until ${new Date(travelUntil).toLocaleString()}. Check-in is every ${Number(travelIntervalDays)} days until then.`
+        );
+      }
       setPingToken(nextPing);
-      setResult({ ...data, recipients: preparedRecipients });
+      setResult({ ...data, recipients: preparedRecipients, tools: sealedTools });
       setSplitShares(splitPassphrase(passphrase));
       setStep("done");
       setPassphrase("");
@@ -427,6 +452,13 @@ export default function CreateVaultPage() {
               <span className="text-ink-faint">Next check-in · </span>
               {new Date(result.next_ping_due).toLocaleString()}
             </p>
+            {Array.isArray(result.tools) && result.tools.length ? (
+              <ul className="space-y-1 text-ink">
+                {result.tools.map((tool) => (
+                  <li key={tool}>{tool}</li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           <div>
@@ -710,9 +742,20 @@ export default function CreateVaultPage() {
             </p>
           ) : null}
           {paidNote && checkoutSessionId ? (
-            <p className="text-sm text-ink">
-              Payment received for this seal. Re-enter the passphrase, attach any files again, then seal.
-            </p>
+            <div className="rounded-2xl bg-sky/10 px-4 py-3 text-sm text-ink">
+              <p>Payment received. Re-enter the passphrase, then seal. You will not be charged again for this seal.</p>
+              <ul className="mt-2 space-y-1">
+                {extraVault ? <li>Another vault is paid and will be created when you seal.</li> : null}
+                {recipients.length > 1 ? <li>{recipients.length} recipients are included.</li> : null}
+                {releaseAt ? <li>Time-lock is set for {new Date(releaseAt).toLocaleString()}.</li> : null}
+                {travelUntil ? (
+                  <li>
+                    Travel mode is set until {new Date(travelUntil).toLocaleString()}, with check-in every {Number(travelIntervalDays) || "—"} days.
+                  </li>
+                ) : null}
+                {paidForFiles ? <li>The file payment is held. Attach the .zip or .rar files again before you seal.</li> : null}
+              </ul>
+            </div>
           ) : null}
 
           {error ? (

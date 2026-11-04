@@ -35,6 +35,15 @@ function readTravelDraft() {
   }
 }
 
+function readEditDraft() {
+  try {
+    const raw = sessionStorage.getItem("cipherswitch-edit");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 function CheckInButton({ vault, now, busy, onCheckIn }) {
   const due = new Date(vault.next_ping_due);
   const dueLabel = due.toLocaleString();
@@ -94,6 +103,7 @@ export default function DashboardPage() {
   const [travelUntil, setTravelUntil] = useState("");
   const [travelDays, setTravelDays] = useState("30");
   const [travelSession, setTravelSession] = useState("");
+  const [fileSession, setFileSession] = useState("");
 
   const load = useCallback(async (access) => {
     const raw = (access || token).trim();
@@ -154,8 +164,10 @@ export default function DashboardPage() {
     const editCanceled = params.get("edit_canceled");
     const fromHash = parseHashParam("access");
     const storedTravel = readTravelDraft();
+    const storedEdit = readEditDraft();
     const travelPaid = params.get("travel_paid") || storedTravel?.sessionId || "";
-    if (fromHash && !travelPaid && !editPaid) {
+    const filePaid = editPaid || storedEdit?.sessionId || "";
+    if (fromHash && !travelPaid && !filePaid) {
       setToken(fromHash);
       load(fromHash);
     }
@@ -241,40 +253,56 @@ export default function DashboardPage() {
       sessionStorage.removeItem("cipherswitch-edit");
       setNotice("Payment canceled. The vault was not changed.");
     }
-    if (editPaid) {
-      const raw = sessionStorage.getItem("cipherswitch-edit");
-      let pending = null;
-      try {
-        pending = raw ? JSON.parse(raw) : null;
-      } catch {
-        pending = null;
-      }
-      if (!pending?.vaultId || !pending?.body || !pending?.token) {
-        setError("Payment received, but the edited vault was missing. Open the vault and save again. You will not be charged again if this payment is still unused.");
+    if (filePaid && !editCanceled) {
+      const pending = storedEdit || {};
+      sessionStorage.setItem(
+        "cipherswitch-edit",
+        JSON.stringify({ ...pending, sessionId: filePaid })
+      );
+      setFileSession(filePaid);
+      if (!pending.vaultId || !pending.body || !pending.token) {
+        if (pending.token || fromHash) setToken(pending.token || fromHash);
+        (async () => {
+          const access = pending.token || fromHash || "";
+          if (access) await load(access);
+          setError("Payment received. Open the vault, attach the files again, and save. You will not be charged again.");
+        })();
       } else {
         setToken(pending.token);
         setBusy(true);
-        fetch(`${API_BASE}/api/vaults/${pending.vaultId}/update`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...pending.body, checkout_session_id: editPaid }),
-        })
-          .then(async (res) => {
+        (async () => {
+          try {
+            const res = await fetch(`${API_BASE}/api/vaults/${pending.vaultId}/update`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...pending.body, checkout_session_id: filePaid }),
+            });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
+              if (res.status === 402) {
+                sessionStorage.removeItem("cipherswitch-edit");
+                setFileSession("");
+                window.history.replaceState(null, "", `${window.location.pathname}#access=${encodeURIComponent(pending.token)}`);
+                await load(pending.token);
+                setNotice("Files are already attached for this payment.");
+                return;
+              }
               throw new Error(
                 typeof json.detail === "string" ? json.detail : "Could not update the vault"
               );
             }
             sessionStorage.removeItem("cipherswitch-edit");
+            setFileSession("");
             window.history.replaceState(null, "", `${window.location.pathname}#access=${encodeURIComponent(pending.token)}`);
             await load(pending.token);
-            setNotice(json.message || "Vault updated.");
-          })
-          .catch((err) => {
+            setNotice("Files are attached to this vault.");
+          } catch (err) {
+            if (pending.token) await load(pending.token);
             setError(err instanceof Error ? err.message : "Error");
-          })
-          .finally(() => setBusy(false));
+          } finally {
+            setBusy(false);
+          }
+        })();
       }
     }
     if (travelCanceled || editCanceled) {
@@ -487,7 +515,8 @@ export default function DashboardPage() {
         release_message: editMessage,
         release_files: editFiles.map((file) => ({ name: file.name, data: file.data })),
       };
-      if (editFiles.length > 0 && !vault.has_attachments) {
+      const heldFilePayment = fileSession && readEditDraft()?.vaultId === vault.vault_id ? fileSession : "";
+      if (editFiles.length > 0 && !vault.has_attachments && !heldFilePayment) {
         sessionStorage.setItem(
           "cipherswitch-edit",
           JSON.stringify({ vaultId: vault.vault_id, token, body })
@@ -517,16 +546,22 @@ export default function DashboardPage() {
       const res = await fetch(`${API_BASE}/api/vaults/${vault.vault_id}/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          ...body,
+          checkout_session_id: heldFilePayment || null,
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(typeof json.detail === "string" ? json.detail : "Could not update the vault");
       }
+      const attachedFiles = body.has_attachments && !vault.has_attachments;
+      sessionStorage.removeItem("cipherswitch-edit");
+      setFileSession("");
       setEditPass("");
       closeEditor();
-      setNotice(json.message || "Vault updated.");
       await load(token);
+      setNotice(attachedFiles ? "Files are attached to this vault." : (json.message || "Vault updated."));
     } catch (err) {
       setEditError(err instanceof Error ? err.message : "Error");
       setBusy(false);
@@ -687,6 +722,9 @@ export default function DashboardPage() {
                   <dt className="text-ink-faint">Next check-in</dt>
                   <dd className="font-semibold text-ink">
                     {new Date(v.next_ping_due).toLocaleString()}
+                    {v.travel_until && new Date(v.travel_until).getTime() > now ? (
+                      <span className="mt-1 block text-xs font-medium text-ink-soft">Using the travel interval</span>
+                    ) : null}
                   </dd>
                 </div>
                 <div>
@@ -712,6 +750,24 @@ export default function DashboardPage() {
                   <div>
                     <dt className="text-ink-faint">Check-in while traveling</dt>
                     <dd className="font-semibold text-ink">Every {v.travel_interval_days} days</dd>
+                  </div>
+                ) : null}
+                {v.release_at ? (
+                  <div>
+                    <dt className="text-ink-faint">Time-lock</dt>
+                    <dd className="font-semibold text-ink">Releases {new Date(v.release_at).toLocaleString()}</dd>
+                  </div>
+                ) : null}
+                {v.has_attachments ? (
+                  <div>
+                    <dt className="text-ink-faint">Files</dt>
+                    <dd className="font-semibold text-ink">Attached</dd>
+                  </div>
+                ) : null}
+                {v.recipients.length > 1 ? (
+                  <div>
+                    <dt className="text-ink-faint">Extra recipients</dt>
+                    <dd className="font-semibold text-ink">{v.recipients.length} people</dd>
                   </div>
                 ) : null}
               </dl>
@@ -926,8 +982,12 @@ export default function DashboardPage() {
                         </p>
                         {!v.has_attachments && editFiles.length > 0 ? (
                           <p className="mt-2 text-sm text-ink-soft">
-                            This vault has no files yet. Adding one is $3, paid once.
+                            {fileSession && readEditDraft()?.vaultId === v.vault_id
+                              ? "The $3 file payment is already held. Save to attach these files."
+                              : "This vault has no files yet. Adding one is $3, paid once."}
                           </p>
+                        ) : v.has_attachments ? (
+                          <p className="mt-2 text-sm text-ink-soft">Files are already attached. Replacing them does not add another charge.</p>
                         ) : null}
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -937,7 +997,9 @@ export default function DashboardPage() {
                           onClick={() => saveEdit(v)}
                           disabled={busy}
                         >
-                          {editFiles.length > 0 && !v.has_attachments ? "Pay $3 and save" : "Save seal"}
+                          {editFiles.length > 0 && !v.has_attachments && !(fileSession && readEditDraft()?.vaultId === v.vault_id)
+                            ? "Pay $3 and save"
+                            : "Save seal"}
                         </button>
                         <button type="button" className="btn-ghost !py-2 text-sm" onClick={closeEditor}>
                           Cancel
