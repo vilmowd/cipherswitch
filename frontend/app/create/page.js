@@ -1,0 +1,470 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { VAULT_TEMPLATES } from "../templates";
+import {
+  buildDashboardUrl,
+  buildPingUrl,
+  buildUnlockUrl,
+  downloadIcsReminder,
+  encryptVaultPayload,
+  fileToAttachment,
+  generateSecureToken,
+  scorePassphrase,
+  splitPassphrase,
+} from "../../utils/crypto";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+const emptyRecipient = () => ({
+  email: "",
+  role: "primary",
+  release_delay_days: 0,
+  unlock_token: generateSecureToken(32),
+});
+
+export default function CreateVaultPage() {
+  const [templateId, setTemplateId] = useState("last-letter");
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState(
+    VAULT_TEMPLATES.find((t) => t.id === "last-letter")?.placeholder || ""
+  );
+  const [passphrase, setPassphrase] = useState("");
+  const [confirmPass, setConfirmPass] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [intervalDays, setIntervalDays] = useState(14);
+  const [graceDays, setGraceDays] = useState(2);
+  const [releaseAt, setReleaseAt] = useState("");
+  const [travelUntil, setTravelUntil] = useState("");
+  const [travelIntervalDays, setTravelIntervalDays] = useState(30);
+  const [isDryRun, setIsDryRun] = useState(false);
+  const [recipients, setRecipients] = useState([emptyRecipient()]);
+  const [files, setFiles] = useState([]);
+  const [splitShares, setSplitShares] = useState(null);
+  const [step, setStep] = useState("idle");
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+  const [pingToken, setPingToken] = useState("");
+  const [showPass, setShowPass] = useState(false);
+
+  const strength = useMemo(() => scorePassphrase(passphrase), [passphrase]);
+  const busy = step === "encrypting" || step === "uploading";
+
+  useEffect(() => {
+    const t = VAULT_TEMPLATES.find((x) => x.id === templateId);
+    if (t) {
+      setIntervalDays(t.suggested_interval_days);
+      if (!title) setTitle(t.name);
+      setMessage(t.placeholder || message);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateId]);
+
+  function updateRecipient(index, patch) {
+    setRecipients((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, ...patch } : r))
+    );
+  }
+
+  function validate() {
+    if (!title.trim()) return "Add a title.";
+    if (!message.trim()) return "Message cannot be empty.";
+    if (!strength.ok) return "Passphrase too weak (14+ mixed characters).";
+    if (passphrase !== confirmPass) return "Passphrases do not match.";
+    if (!ownerEmail.includes("@")) return "Valid owner email required.";
+    if (!recipients.length) return "Add at least one recipient.";
+    for (const r of recipients) {
+      if (!r.email.includes("@")) return "Every recipient needs a valid email.";
+      if ((r.role === "primary" || r.role === "backup") && !r.unlock_token) {
+        return "Unlockable recipients need tokens.";
+      }
+    }
+    if (!recipients.some((r) => r.role === "primary" || r.role === "backup")) {
+      return "Need at least one primary or backup recipient.";
+    }
+    return null;
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    const v = validate();
+    if (v) {
+      setError(v);
+      setStep("error");
+      return;
+    }
+
+    try {
+      setStep("encrypting");
+      const attachments = [];
+      for (const f of files) {
+        if (f.size > 1_500_000) {
+          throw new Error(`${f.name} is too large (max ~1.5MB per file for demo).`);
+        }
+        attachments.push(await fileToAttachment(f));
+      }
+
+      const nextPing = generateSecureToken(32);
+      const preparedRecipients = recipients.map((r) => ({
+        email: r.email.trim(),
+        role: r.role,
+        release_delay_days: Number(r.release_delay_days) || 0,
+        unlock_token:
+          r.role === "witness" ? undefined : r.unlock_token || generateSecureToken(32),
+      }));
+
+      const encrypted = await encryptVaultPayload(
+        { message, attachments, templateId },
+        title,
+        passphrase
+      );
+
+      setStep("uploading");
+      const response = await fetch(`${API_BASE}/api/vaults/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          encrypted_title: encrypted.encryptedTitle,
+          encrypted_payload: encrypted.encryptedPayload,
+          init_vector: encrypted.initVector,
+          title_iv: encrypted.titleIv,
+          salt: encrypted.salt,
+          payload_mac: encrypted.payloadMac,
+          kdf: encrypted.kdf,
+          crypto_version: encrypted.cryptoVersion,
+          template_id: templateId,
+          interval_days: Number(intervalDays),
+          grace_days: Number(graceDays),
+          owner_email: ownerEmail.trim(),
+          ping_token: nextPing,
+          recipients: preparedRecipients,
+          release_at: releaseAt ? new Date(releaseAt).toISOString() : null,
+          travel_until: travelUntil ? new Date(travelUntil).toISOString() : null,
+          travel_interval_days: travelUntil ? Number(travelIntervalDays) : null,
+          is_dry_run: isDryRun,
+          has_attachments: attachments.length > 0,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail =
+          typeof data.detail === "string"
+            ? data.detail
+            : Array.isArray(data.detail)
+              ? data.detail.map((d) => d.msg || JSON.stringify(d)).join("; ")
+              : "Create failed";
+        throw new Error(detail);
+      }
+
+      setPingToken(nextPing);
+      setResult({ ...data, recipients: preparedRecipients });
+      setSplitShares(splitPassphrase(passphrase));
+      setStep("done");
+      setPassphrase("");
+      setConfirmPass("");
+      setMessage("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+      setStep("error");
+    }
+  }
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const pingUrl = pingToken ? buildPingUrl(origin, pingToken) : "";
+  const dashUrl =
+    result?.owner_access_token
+      ? buildDashboardUrl(origin, result.owner_access_token)
+      : "";
+
+  return (
+    <div className="mx-auto max-w-3xl px-4 py-10 sm:px-8 sm:py-16">
+      <div className="mb-8 animate-fade-up sm:mb-10">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky">
+          New vault
+        </p>
+        <h1 className="mt-3 heading-caps text-3xl text-ink sm:text-5xl">
+          Seal a vault
+        </h1>
+        <p className="mt-3 max-w-xl text-ink-soft">
+          Templates, attachments, multi-recipient, travel mode, time-lock, and
+          dry-run — all encrypted in your browser.
+        </p>
+      </div>
+
+      {step === "done" && result ? (
+        <div className="panel animate-scale-in space-y-6 p-4 sm:p-8">
+          <p className="inline-flex rounded-full px-3 py-1 text-sm font-semibold status-ok">
+            {result.is_dry_run || isDryRun ? "Dry-run sealed" : "Vault sealed"}
+          </p>
+          <p className="text-ink-soft">{result.message}</p>
+
+          <div className="space-y-3 text-sm">
+            <p>
+              <span className="text-ink-faint">Vault ID · </span>
+              <span className="font-mono">{result.vault_id}</span>
+            </p>
+            <p>
+              <span className="text-ink-faint">Next check-in · </span>
+              {new Date(result.next_ping_due).toLocaleString()}
+            </p>
+          </div>
+
+          <div>
+            <p className="label">Dashboard</p>
+            <p className="break-anywhere rounded-2xl bg-sky-mist p-3 font-mono text-xs text-sky-deep">
+              {dashUrl}
+            </p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <a href={dashUrl} className="btn-primary w-full !py-2 text-sm sm:w-auto">
+                Open dashboard
+              </a>
+              <button
+                type="button"
+                className="btn-ghost w-full !py-2 text-sm sm:w-auto"
+                onClick={() => navigator.clipboard.writeText(dashUrl)}
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <p className="label">Check-in link</p>
+            <p className="break-anywhere rounded-2xl bg-sky-mist p-3 font-mono text-xs text-sky-deep">
+              {pingUrl}
+            </p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <button
+                type="button"
+                className="btn-ghost w-full !py-2 text-sm sm:w-auto"
+                onClick={() =>
+                  downloadIcsReminder({
+                    title: `CipherSwitch check-in: ${title}`,
+                    description: "Keep your vault sealed — check in before the deadline.",
+                    nextPingDue: result.next_ping_due,
+                    url: pingUrl,
+                  })
+                }
+              >
+                Add to calendar (.ics)
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="label">Recipient unlock links</p>
+            {(result.recipients || [])
+              .filter((r) => r.role !== "witness")
+              .map((r) => {
+                const url = buildUnlockUrl(origin, result.vault_id, r.unlock_token);
+                return (
+                  <div key={r.email} className="rounded-2xl border border-slate-100 p-3">
+                    <p className="text-sm font-semibold">
+                      {r.email} · {r.role}
+                    </p>
+                    <p className="mt-1 break-anywhere font-mono text-xs text-sky-deep">{url}</p>
+                  </div>
+                );
+              })}
+          </div>
+
+          {splitShares ? (
+            <div className="rounded-2xl bg-sun-mist p-4 text-sm text-sun">
+              <p className="font-bold">Optional passphrase split</p>
+              <p className="mt-1">
+                Keep share A; give share B to your recipient on a separate channel.
+                Both are required to rebuild the passphrase.
+              </p>
+              <p className="mt-3 break-anywhere font-mono text-xs">A: {splitShares.shareYou}</p>
+              <p className="mt-2 break-anywhere font-mono text-xs">B: {splitShares.shareThem}</p>
+            </div>
+          ) : null}
+
+          <a href="/" className="btn-ghost inline-flex">
+            Home
+          </a>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="panel animate-fade-up-1 space-y-7 p-4 sm:p-8">
+          <div>
+            <p className="label">Template</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {VAULT_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTemplateId(t.id)}
+                  className={`rounded-2xl border p-4 text-left transition ${
+                    templateId === t.id
+                      ? "border-sky bg-sky-soft shadow-soft"
+                      : "border-slate-100 hover:border-sky/40"
+                  }`}
+                >
+                  <p className="font-bold text-ink">{t.name}</p>
+                  <p className="mt-1 text-xs text-ink-faint">{t.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="title">Title</label>
+            <input id="title" className="field" value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} />
+          </div>
+
+          <div>
+            <label className="label" htmlFor="message">Message</label>
+            <textarea id="message" className="field min-h-[140px]" value={message} onChange={(e) => setMessage(e.target.value)} disabled={busy} />
+          </div>
+
+          <div>
+            <label className="label" htmlFor="files">Attachments (encrypted)</label>
+            <input
+              id="files"
+              type="file"
+              multiple
+              className="field"
+              disabled={busy}
+              onChange={(e) => setFiles(Array.from(e.target.files || []))}
+            />
+            {files.length ? (
+              <p className="mt-2 text-xs text-ink-faint">
+                {files.length} file(s) · max ~1.5MB each in this demo
+              </p>
+            ) : null}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="label" htmlFor="pass">Passphrase</label>
+              <input id="pass" type={showPass ? "text" : "password"} className="field" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} disabled={busy} />
+              <p className="mt-1 text-xs text-ink-faint">Strength: {strength.label}</p>
+            </div>
+            <div>
+              <label className="label" htmlFor="confirm">Confirm</label>
+              <input id="confirm" type={showPass ? "text" : "password"} className="field" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)} disabled={busy} />
+              <button type="button" className="mt-2 text-xs font-bold text-sky" onClick={() => setShowPass((s) => !s)}>
+                {showPass ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="owner">Your email</label>
+            <input id="owner" type="email" className="field" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} disabled={busy} />
+          </div>
+
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="label !mb-0">Recipients</p>
+              <button
+                type="button"
+                className="text-xs font-bold text-sky"
+                onClick={() => setRecipients((r) => [...r, { ...emptyRecipient(), role: "backup" }])}
+              >
+                + Add
+              </button>
+            </div>
+            <div className="space-y-3">
+              {recipients.map((r, i) => (
+                <div key={i} className="grid gap-2 rounded-2xl border border-slate-100 p-3 sm:grid-cols-3">
+                  <input
+                    className="field"
+                    placeholder="email"
+                    value={r.email}
+                    onChange={(e) => updateRecipient(i, { email: e.target.value })}
+                    disabled={busy}
+                  />
+                  <select
+                    className="field"
+                    value={r.role}
+                    onChange={(e) =>
+                      updateRecipient(i, {
+                        role: e.target.value,
+                        unlock_token:
+                          e.target.value === "witness"
+                            ? undefined
+                            : r.unlock_token || generateSecureToken(32),
+                      })
+                    }
+                    disabled={busy}
+                  >
+                    <option value="primary">Primary</option>
+                    <option value="backup">Backup</option>
+                    <option value="witness">Witness (notify only)</option>
+                  </select>
+                  <input
+                    className="field"
+                    type="number"
+                    min={0}
+                    title="Release delay days"
+                    placeholder="Delay days"
+                    value={r.release_delay_days}
+                    onChange={(e) =>
+                      updateRecipient(i, { release_delay_days: e.target.value })
+                    }
+                    disabled={busy || r.role === "witness"}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="label" htmlFor="interval">Interval (days)</label>
+              <input id="interval" type="number" min={1} className="field" value={intervalDays} onChange={(e) => setIntervalDays(e.target.value)} disabled={busy} />
+            </div>
+            <div>
+              <label className="label" htmlFor="grace">Grace (days)</label>
+              <input id="grace" type="number" min={0} className="field" value={graceDays} onChange={(e) => setGraceDays(e.target.value)} disabled={busy} />
+            </div>
+            <div>
+              <label className="label" htmlFor="release">Time-lock (optional)</label>
+              <input id="release" type="datetime-local" className="field" value={releaseAt} onChange={(e) => setReleaseAt(e.target.value)} disabled={busy} />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="label" htmlFor="travel">Travel until (optional)</label>
+              <input id="travel" type="datetime-local" className="field" value={travelUntil} onChange={(e) => setTravelUntil(e.target.value)} disabled={busy} />
+            </div>
+            <div>
+              <label className="label" htmlFor="travelInt">Travel interval days</label>
+              <input id="travelInt" type="number" min={1} className="field" value={travelIntervalDays} onChange={(e) => setTravelIntervalDays(e.target.value)} disabled={busy || !travelUntil} />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-3 text-sm text-ink-soft">
+            <input
+              type="checkbox"
+              checked={isDryRun}
+              onChange={(e) => setIsDryRun(e.target.checked)}
+              disabled={busy}
+            />
+            Dry-run mode — safe to force-trigger from the dashboard for testing
+          </label>
+
+          {error ? (
+            <div role="alert" className="rounded-2xl px-4 py-3 text-sm status-err">
+              {error}
+            </div>
+          ) : null}
+
+          {busy ? (
+            <div className="rounded-2xl px-4 py-3 text-sm status-warn">
+              {step === "encrypting" ? "Encrypting locally…" : "Saving ciphertext…"}
+            </div>
+          ) : null}
+
+          <button type="submit" className="btn-primary w-full sm:w-auto" disabled={busy}>
+            {busy ? "Working…" : "Encrypt & seal"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}

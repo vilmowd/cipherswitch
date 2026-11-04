@@ -1,0 +1,9 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+python-dotenv>=1.0.1
+email-validator>=2.2.0
+resend>=2.0.0
+# Optional — required only when DATABASE_URL points at PostgreSQL:
+# psycopg2-binary>=2.9.10

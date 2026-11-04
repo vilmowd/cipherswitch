@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="14" fill="#5da8de"/>
+  <g transform="translate(8 3.2) scale(0.48)">
+    <defs>
+      <linearGradient id="lkShackle" x1="50" y1="4" x2="50" y2="52" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#ffffff"/>
+        <stop offset="1" stop-color="#b7d5ea"/>
+      </linearGradient>
+      <linearGradient id="lkBody" x1="50" y1="44" x2="50" y2="112" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#ffffff"/>
+        <stop offset="0.55" stop-color="#eaf4fb"/>
+        <stop offset="1" stop-color="#9ec8e4"/>
+      </linearGradient>
+      <linearGradient id="lkShine" x1="50" y1="44" x2="50" y2="90" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#ffffff" stop-opacity="0.7"/>
+        <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+      </linearGradient>
+      <radialGradient id="lkKey" cx="50" cy="72" r="12" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#163a54"/>
+        <stop offset="1" stop-color="#3b8fc9"/>
+      </radialGradient>
+    </defs>
+    <path fill="url(#lkShackle)" fill-rule="evenodd" d="M28 50 V34 C28 21.85 37.85 12 50 12 C62.15 12 72 21.85 72 34 V50 H64 V34 C64 26.27 57.73 20 50 20 C42.27 20 36 26.27 36 34 V50 H28 Z"/>
+    <rect x="18" y="44" width="64" height="66" rx="15" fill="url(#lkBody)"/>
+    <rect x="18" y="44" width="64" height="66" rx="15" fill="url(#lkShine)"/>
+    <rect x="22" y="48" width="56" height="58" rx="12" stroke="#ffffff" stroke-opacity="0.55" stroke-width="1.5"/>
+    <circle cx="50" cy="72" r="9" fill="url(#lkKey)"/>
+    <path d="M46 77 H54 V90 C54 92.2 52.2 94 50 94 C47.8 94 46 92.2 46 90 Z" fill="url(#lkKey)"/>
+    <circle cx="50" cy="69.5" r="2.4" fill="#ffffff" opacity="0.4"/>
+  </g>
+</svg>
