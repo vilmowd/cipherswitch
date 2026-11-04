@@ -161,6 +161,7 @@ export default function DashboardPage() {
         pending = null;
       }
       const until = toIsoOrEmpty(pending?.until);
+      const untilFuture = Boolean(until) && new Date(until).getTime() > Date.now();
       const vaultId = pending?.vaultId || params.get("vault") || "";
       const access = pending?.token || fromHash || "";
       const days = Number(pending?.days);
@@ -168,11 +169,12 @@ export default function DashboardPage() {
         setToken(access);
         load(access);
       }
-      if (!until || !vaultId || !access || !Number.isInteger(days) || days < 1) {
+      if (typeof pending?.until === "string") setTravelUntil(pending.until);
+      if (!untilFuture || !vaultId || !access || !Number.isInteger(days) || days < 1) {
         setTravelOpen(vaultId);
         setTravelDays(Number.isInteger(days) && days > 0 ? String(days) : "30");
         setTravelSession(travelPaid);
-        setError("Payment received. Choose the travel end date to turn it on. You will not be charged again.");
+        setError("Payment received. Choose a travel end date in the future to turn it on. You will not be charged again.");
       } else {
         setBusy(true);
         fetch(`${API_BASE}/api/vaults/${vaultId}/travel`, {

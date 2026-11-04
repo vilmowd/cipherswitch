@@ -241,7 +241,7 @@ def create_checkout(
             f"{frontend}/dashboard?travel_paid={{CHECKOUT_SESSION_ID}}&vault={vault_id}"
         )
         cancel = f"{frontend}/dashboard?travel_canceled=1"
-        line_fees = [Fee("travel", "CipherSwitch travel mode", travel_cents())]
+        line_fees = [Fee("travel", "Travel mode", travel_cents())]
     elif purpose == "seal_fees":
         if not line_fees:
             raise HTTPException(status_code=400, detail="Nothing to pay for.")
@@ -340,13 +340,23 @@ def _line_name(item) -> str:
     return ""
 
 
+def _line_code(name: str) -> str:
+    cleaned = _text(name)
+    # Older travel checkouts used this product name.
+    if cleaned == "CipherSwitch travel mode":
+        return "travel"
+    for code, row in catalog().items():
+        if row["name"] == cleaned:
+            return code
+    return ""
+
+
 def _fees_from_lines(lines) -> dict[str, int]:
     """Credit a fee only when the line name and the amount match the catalog."""
     prices = catalog()
-    names = {row["name"]: code for code, row in prices.items()}
     paid: dict[str, int] = {}
     for item in lines or []:
-        code = names.get(_line_name(item))
+        code = _line_code(_line_name(item))
         if not code:
             continue
         amount = _amount(_value(item, "amount_total", None))
@@ -397,6 +407,22 @@ def _load_checkout(session_id: str):
     return session, meta, amount
 
 
+def _is_travel_checkout(session, meta: dict[str, str], amount: int, session_id: str) -> bool:
+    """True when this paid checkout is the travel fee and not a larger bundle."""
+    if amount < travel_cents():
+        return False
+    purpose = meta.get("purpose") or ""
+    if purpose == PURPOSE_TRAVEL:
+        return True
+    if purpose == "seal_fees":
+        paid = decode_fees(meta.get("fees") or "")
+    elif not purpose:
+        paid = _fees_from_lines(_line_items(session, session_id))
+    else:
+        return False
+    return list(paid) == ["travel"] and int(paid.get("travel", 0)) >= travel_cents()
+
+
 def assert_payment_available(session_id: Optional[str], purpose: str, vault_id: Optional[str] = None) -> str:
     if not session_id or not session_id.strip():
         raise HTTPException(
@@ -420,21 +446,29 @@ def assert_payment_available(session_id: Optional[str], purpose: str, vault_id: 
             detail="Payments are not configured yet.",
         )
     _use_stripe()
-    _session, meta, amount = _load_checkout(session_id)
-    if purpose == PURPOSE_TRAVEL and amount < travel_cents():
+    session, meta, amount = _load_checkout(session_id)
+    recorded = meta.get("vault_id") or ""
+    if vault_id and recorded and recorded != str(vault_id):
         raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Payment does not cover travel mode.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Payment does not match this vault.",
+        )
+    if purpose == PURPOSE_TRAVEL:
+        if _is_travel_checkout(session, meta, amount, session_id):
+            return session_id
+        if amount < travel_cents() and (meta.get("purpose") or "") in ("", PURPOSE_TRAVEL):
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Payment does not cover travel mode.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Payment does not match this action.",
         )
     if meta.get("purpose") != purpose:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payment does not match this action.",
-        )
-    if vault_id and meta.get("vault_id") != vault_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payment does not match this vault.",
         )
     return session_id
 

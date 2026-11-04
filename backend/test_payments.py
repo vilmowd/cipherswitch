@@ -150,6 +150,7 @@ class PaymentChecks(unittest.TestCase):
         self.assertEqual(captured["metadata"]["purpose"], "premium_travel")
         self.assertEqual(captured["metadata"]["vault_id"], VAULT)
         self.assertEqual(captured["line_items"][0]["price_data"]["unit_amount"], 500)
+        self.assertEqual(captured["line_items"][0]["price_data"]["product_data"]["name"], "Travel mode")
 
     def test_a_paid_session_without_a_currency_field_still_counts(self):
         import stripe
@@ -201,6 +202,117 @@ class PaymentChecks(unittest.TestCase):
                 with self.assertRaises(HTTPException) as caught:
                     billing.paid_fee_amounts("cs_test_small")
         self.assertEqual(caught.exception.status_code, 400)
+
+    def _stripe_session(self, **fields):
+        import stripe
+
+        body = {
+            "id": "cs_test_paid",
+            "object": "checkout.session",
+            "payment_status": "paid",
+            "amount_total": 0,
+        }
+        body.update(fields)
+        return stripe.checkout.Session.construct_from(body, "sk_test_x")
+
+    def test_each_fee_is_accepted_without_a_currency_field(self):
+        catalog = billing.catalog()
+        for code, row in catalog.items():
+            fake = self._stripe_session(
+                amount_total=row["cents"],
+                metadata={"purpose": "seal_fees", "fees": f"{code}:{row['cents']}"},
+            )
+            with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+                _session_id, paid = billing.paid_fee_amounts(f"cs_test_{code}")
+            self.assertEqual(paid, {code: row["cents"]})
+
+    def test_one_checkout_can_cover_every_fee_together(self):
+        catalog = billing.catalog()
+        encoded = ",".join(f"{code}:{row['cents']}" for code, row in catalog.items())
+        total = sum(row["cents"] for row in catalog.values())
+        fake = self._stripe_session(
+            amount_total=total,
+            metadata={"purpose": "seal_fees", "fees": encoded},
+        )
+        with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+            _session_id, paid = billing.paid_fee_amounts("cs_test_all")
+        self.assertEqual(paid, {code: row["cents"] for code, row in catalog.items()})
+        required = billing.seal_fees(
+            extra_vault=True,
+            recipient_count=2,
+            has_files=True,
+            has_time_lock=True,
+            has_travel=True,
+        )
+        self.assertEqual(billing.missing_fees(required, paid), [])
+
+    def test_dashboard_travel_is_accepted_without_a_currency_field(self):
+        fake = self._stripe_session(
+            amount_total=500,
+            metadata={"purpose": "premium_travel", "fees": "travel:500", "vault_id": VAULT},
+        )
+        with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+            self.assertEqual(
+                billing.assert_payment_available("cs_test_travel", billing.PURPOSE_TRAVEL, VAULT),
+                "cs_test_travel",
+            )
+
+    def test_an_older_travel_charge_without_metadata_still_counts(self):
+        fake = self._stripe_session(amount_total=500, currency="usd")
+        listed = SimpleNamespace(
+            data=[SimpleNamespace(description="CipherSwitch travel mode", amount_total=500)]
+        )
+        with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+            with patch("billing.stripe.checkout.Session.list_line_items", return_value=listed):
+                self.assertEqual(
+                    billing.assert_payment_available("cs_test_old_travel", billing.PURPOSE_TRAVEL, VAULT),
+                    "cs_test_old_travel",
+                )
+
+    def test_a_file_payment_cannot_turn_on_travel(self):
+        fake = self._stripe_session(
+            amount_total=300,
+            metadata={"purpose": "seal_fees", "fees": "files:300", "vault_id": VAULT},
+        )
+        with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+            with self.assertRaises(HTTPException) as caught:
+                billing.assert_payment_available("cs_test_files", billing.PURPOSE_TRAVEL, VAULT)
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_a_travel_payment_cannot_seal_another_vault(self):
+        fake = self._stripe_session(
+            amount_total=500,
+            metadata={"purpose": "premium_travel", "fees": "travel:500", "vault_id": VAULT},
+        )
+        with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+            with self.assertRaises(HTTPException) as caught:
+                billing.paid_fee_amounts("cs_test_travel", VAULT)
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_adding_files_uses_only_the_file_fee(self):
+        fake = self._stripe_session(
+            amount_total=300,
+            metadata={"purpose": "seal_fees", "fees": "files:300", "vault_id": VAULT},
+        )
+        with patch("billing.stripe.checkout.Session.retrieve", return_value=fake):
+            _session_id, paid = billing.paid_fee_amounts("cs_test_edit", VAULT)
+        self.assertEqual(billing.missing_fees(
+            [billing.Fee("files", "Encrypted files", 300)],
+            paid,
+        ), [])
+        self.assertEqual(
+            [fee.code for fee in billing.missing_fees(
+                billing.seal_fees(
+                    extra_vault=True,
+                    recipient_count=1,
+                    has_files=True,
+                    has_time_lock=False,
+                    has_travel=False,
+                ),
+                paid,
+            )],
+            ["extra_vault"],
+        )
 
     def test_a_bare_site_address_still_builds_an_https_return_url(self):
         os.environ["FRONTEND_URL"] = "cipherswitch.pro"
