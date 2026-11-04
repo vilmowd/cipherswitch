@@ -379,7 +379,12 @@ export default function CreateVaultPage() {
       setConfirmPass("");
       setMessage("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unexpected error");
+      const message = err instanceof Error ? err.message : "Unexpected error";
+      setError(
+        message === "Failed to fetch"
+          ? "The server did not answer, so the vault was not sealed. Press the button again. You will not be charged a second time."
+          : message
+      );
       setStep("error");
     }
   }

@@ -14,8 +14,9 @@ from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Literal, Optional
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 import archives
@@ -362,14 +363,22 @@ app = FastAPI(
     openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
-cors_origins = [
-    o.strip()
-    for o in os.getenv(
-        "CORS_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000",
-    ).split(",")
-    if o.strip() and o.strip() != "*"
-]
+def browser_origins(raw: str) -> list[str]:
+    """Accept a bare host such as cipherswitch.pro as well as a full https URL."""
+    origins: list[str] = []
+    for item in raw.split(","):
+        origin = item.strip().rstrip("/")
+        if not origin or origin == "*":
+            continue
+        if not origin.startswith(("http://", "https://")):
+            origin = "https://" + origin.lstrip("/")
+        origins.append(origin)
+    return origins
+
+
+cors_origins = browser_origins(
+    os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+)
 
 
 class _SecurityHeaders:
@@ -398,12 +407,39 @@ class _SecurityHeaders:
 
         await self.app(scope, receive, send_with)
 
+class _ReportErrors:
+    """Turn an unhandled error into JSON before it leaves the CORS layer.
+
+    Starlette's outermost error page is sent without Access-Control-Allow-Origin.
+    The browser then hides the real status and reports a CORS failure.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        try:
+            await self.app(scope, receive, send)
+        except Exception:
+            logger.exception("Request failed")
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Something went wrong. Please try again."},
+            )
+            await response(scope, receive, send)
+
+
 app.add_middleware(body_limit.BodyLimitMiddleware)
 app.add_middleware(_SecurityHeaders)
+app.add_middleware(_ReportErrors)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
+    allow_private_network=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -547,7 +583,7 @@ def start_checkout(body: CheckoutRequest) -> dict:
     response_model=VaultCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
+def create_vault(body: VaultCreateRequest, background: BackgroundTasks) -> VaultCreateResponse:
     owner_email = str(body.owner_email).lower()
     fees = billing.seal_fees(
         extra_vault=billing.email_has_vault(owner_email),
@@ -718,7 +754,8 @@ def create_vault(body: VaultCreateRequest) -> VaultCreateResponse:
     frontend = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
     dashboard_hint = f"{frontend}/dashboard#access={owner_access}"
 
-    email_service.send_vault_created_owner(
+    background.add_task(
+        email_service.send_vault_created_owner,
         owner_email=str(body.owner_email).lower(),
         vault_id=str(row["id"]),
         ping_token=body.ping_token,

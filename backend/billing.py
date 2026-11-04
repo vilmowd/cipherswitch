@@ -66,6 +66,19 @@ def _secret() -> str:
     return os.getenv("STRIPE_SECRET_KEY", "").strip()
 
 
+_stripe_client_ready = False
+
+
+def _use_stripe() -> None:
+    """Talk to Stripe with a short timeout so a stall cannot drop the browser request."""
+    global _stripe_client_ready
+    stripe.api_key = _secret()
+    if _stripe_client_ready:
+        return
+    stripe.default_http_client = stripe.RequestsClient(timeout=12)
+    _stripe_client_ready = True
+
+
 def _frontend() -> str:
     raw = os.getenv("FRONTEND_URL", "http://localhost:3000").strip().rstrip("/")
     if raw and not raw.startswith(("http://", "https://")):
@@ -214,7 +227,7 @@ def create_checkout(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Payments are not configured yet.",
         )
-    stripe.api_key = secret
+    _use_stripe()
     frontend = _frontend()
     vault_id = _vault_id(vault_id)
     line_fees = list(fees or [])
@@ -292,25 +305,28 @@ def assert_payment_available(session_id: Optional[str], purpose: str, vault_id: 
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Payments are not configured yet.",
         )
-    stripe.api_key = secret
+    _use_stripe()
     try:
         session = stripe.checkout.Session.retrieve(session_id)
+        paid_status = session.payment_status
+        paid_currency = (session.currency or "").lower()
+        amount = int(session.amount_total or 0)
+        meta = dict(session.metadata or {})
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payment could not be verified.",
         ) from exc
-    if session.payment_status != "paid" or (session.currency or "").lower() != "usd":
+    if paid_status != "paid" or paid_currency != "usd":
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Payment is not complete.",
         )
-    if purpose == PURPOSE_TRAVEL and int(session.amount_total or 0) < travel_cents():
+    if purpose == PURPOSE_TRAVEL and amount < travel_cents():
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Payment does not cover travel mode.",
         )
-    meta = session.metadata or {}
     if meta.get("purpose") != purpose:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -350,27 +366,31 @@ def paid_fee_amounts(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Payments are not configured yet.",
         )
-    stripe.api_key = secret
+    _use_stripe()
     try:
         session = stripe.checkout.Session.retrieve(session_id)
+        paid_status = session.payment_status
+        paid_currency = (session.currency or "").lower()
+        meta = dict(session.metadata or {})
+        amount = int(session.amount_total or 0)
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payment could not be verified.",
         ) from exc
-    if session.payment_status != "paid" or (session.currency or "").lower() != "usd":
+    if paid_status != "paid" or paid_currency != "usd":
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Payment is not complete.",
         )
-    meta = session.metadata or {}
     if vault_id and meta.get("vault_id") and meta.get("vault_id") != str(vault_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payment does not match this vault.",
         )
     purpose = meta.get("purpose") or ""
-    amount = int(session.amount_total or 0)
     if purpose == "seal_fees":
         paid = decode_fees(meta.get("fees") or "")
         if not paid or amount < sum(paid.values()):

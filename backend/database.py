@@ -300,6 +300,10 @@ def get_cursor(*, commit: bool = False) -> Generator[_CursorAdapter, None, None]
             yield _CursorAdapter(cur, conn)
             if commit:
                 conn.commit()
+            else:
+                # A read must not leave the connection idle inside a transaction.
+                # Postgres would keep that transaction open and the next seal can stall.
+                conn.rollback()
         except Exception:
             conn.rollback()
             raise

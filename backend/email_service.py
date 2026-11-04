@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import os
@@ -39,25 +40,34 @@ def _send(
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set — skip email to=%s subject=%s", to, subject)
         return False
-    try:
+    payload: dict = {
+        "from": EMAIL_FROM,
+        "to": [to],
+        "subject": subject,
+        "html": html,
+        "text": text,
+    }
+    if attachments:
+        payload["attachments"] = attachments
+
+    def deliver() -> object:
         import resend
 
         resend.api_key = RESEND_API_KEY
-        payload: dict = {
-            "from": EMAIL_FROM,
-            "to": [to],
-            "subject": subject,
-            "html": html,
-            "text": text,
-        }
-        if attachments:
-            payload["attachments"] = attachments
-        result = resend.Emails.send(payload)
-        logger.info("Email sent to=%s id=%s", to, getattr(result, "id", result))
-        return True
+        return resend.Emails.send(payload)
+
+    # A stalled mail provider must not hold the seal request open until the
+    # browser gives up and reports a CORS failure.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        result = pool.submit(deliver).result(timeout=8)
     except Exception:  # noqa: BLE001
         logger.exception("Failed to send email to=%s subject=%s", to, subject)
         return False
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    logger.info("Email sent to=%s id=%s", to, getattr(result, "id", result))
+    return True
 
 
 def _untrusted_file_notice(*, has_file: bool) -> tuple[str, str]:
