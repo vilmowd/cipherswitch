@@ -288,7 +288,7 @@ def send_ping_rotated(
         "Check-in confirmed — new link",
         f"""
         <p>Vault <strong>{_e(vault_id)}</strong> next deadline: <strong>{_e(due)}</strong>.</p>
-        <p><a href="{_e(ping_url)}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Save new check-in link</a></p>
+        <p><a href="{_e(ping_url)}" style="display:inline-block;background:#5da8de;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;">Click to check in</a></p>
         """,
     )
     return _send(
