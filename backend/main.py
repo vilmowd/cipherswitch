@@ -213,12 +213,53 @@ class TemplatesResponse(BaseModel):
     templates: list[dict]
 
 
+class OwnerAccessRequest(BaseModel):
+    owner_access_token: str = Field(..., min_length=32, max_length=128)
+
+
+class VaultUpdateRequest(BaseModel):
+    owner_access_token: str = Field(..., min_length=32, max_length=128)
+    encrypted_title: str = Field(..., min_length=16, max_length=8192)
+    encrypted_payload: str = Field(..., min_length=16, max_length=5_000_000)
+    init_vector: str = Field(..., min_length=8, max_length=128)
+    title_iv: str = Field(..., min_length=8, max_length=128)
+    salt: str = Field(..., min_length=8, max_length=128)
+    payload_mac: str = Field(..., min_length=16, max_length=256)
+    has_attachments: bool = False
+    checkout_session_id: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator(
+        "encrypted_title",
+        "encrypted_payload",
+        "init_vector",
+        "title_iv",
+        "salt",
+        "payload_mac",
+    )
+    @classmethod
+    def validate_b64_field(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not _B64_RE.fullmatch(cleaned):
+            raise ValueError("Field must be base64 or base64url encoded")
+        return cleaned
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _owner_vault(vault_id: UUID, token: str) -> dict:
+    vault = db.fetch_one(
+        "SELECT * FROM vaults WHERE id = %s AND owner_access_token_hash = %s",
+        (str(vault_id), _hash_token(token.strip())),
+    )
+    if not vault:
+        raise HTTPException(status_code=404, detail="Vault not found or access denied")
+    return vault
 
 
 def _new_token() -> str:
@@ -385,6 +426,8 @@ class CheckoutRequest(BaseModel):
     has_attachments: bool = False
     has_time_lock: bool = False
     has_travel: bool = False
+    include_extra_vault: bool = True
+    return_to: Literal["create", "edit"] = "create"
 
 
 class QuoteRequest(BaseModel):
@@ -420,7 +463,7 @@ def start_checkout(body: CheckoutRequest) -> dict:
         )
         return {"url": url, "label": billing.catalog()["travel"]["label"]}
     extra = False
-    if body.owner_email:
+    if body.include_extra_vault and body.owner_email:
         extra = billing.email_has_vault(str(body.owner_email).lower())
     fees = billing.seal_fees(
         extra_vault=extra,
@@ -431,7 +474,11 @@ def start_checkout(body: CheckoutRequest) -> dict:
     )
     if not fees:
         raise HTTPException(status_code=400, detail="Nothing to pay for.")
-    url = billing.create_checkout(purpose="seal_fees", fees=fees)
+    url = billing.create_checkout(
+        purpose="seal_fees",
+        fees=fees,
+        return_to=body.return_to,
+    )
     total = sum(fee.cents for fee in fees)
     return {"url": url, "label": billing._money(total)}
 
@@ -901,6 +948,107 @@ def dry_run_trigger(vault_id: UUID, body: DryRunTriggerRequest) -> dict:
         "status": "TRIGGERED",
         "message": "Dry-run trigger fired. Recipients can unlock with their links + passphrase.",
     }
+
+
+@app.post("/api/vaults/{vault_id}/contents")
+def owner_contents(vault_id: UUID, body: OwnerAccessRequest) -> dict:
+    vault = _owner_vault(vault_id, body.owner_access_token)
+    return {
+        "vault_id": str(vault["id"]),
+        "status": vault["status"],
+        "template_id": vault["template_id"],
+        "has_attachments": bool(vault.get("has_attachments")),
+        "encrypted_title": vault["encrypted_title"],
+        "encrypted_payload": vault["encrypted_payload"],
+        "init_vector": vault["init_vector"],
+        "title_iv": vault["title_iv"],
+        "salt": vault["salt"],
+        "payload_mac": vault["payload_mac"],
+        "kdf": vault["kdf"],
+        "crypto_version": vault["crypto_version"],
+    }
+
+
+@app.post("/api/vaults/{vault_id}/update")
+def update_vault(vault_id: UUID, body: VaultUpdateRequest) -> dict:
+    vault = _owner_vault(vault_id, body.owner_access_token)
+    if vault["status"] == "TRIGGERED":
+        raise HTTPException(status_code=409, detail="A released vault cannot be edited.")
+    has_files = billing.payload_has_files(body) or body.has_attachments
+    needs_fee = billing.edit_needs_file_fee(
+        already_has_files=bool(vault.get("has_attachments")),
+        has_files=has_files,
+    )
+    paid_session = None
+    if needs_fee:
+        paid_session, paid_amounts = billing.paid_fee_amounts(body.checkout_session_id)
+        missing = billing.missing_fees(
+            [billing.Fee("files", "Encrypted files", billing.files_cents())],
+            paid_amounts,
+        )
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"Adding files is {billing.catalog()['files']['label']}, paid once.",
+            )
+    now = _utcnow()
+    try:
+        with db.get_cursor(commit=True) as cur:
+            cur.execute(
+                """
+                UPDATE vaults
+                SET encrypted_title = %s,
+                    encrypted_payload = %s,
+                    init_vector = %s,
+                    title_iv = %s,
+                    salt = %s,
+                    payload_mac = %s,
+                    has_attachments = %s
+                WHERE id = %s AND owner_access_token_hash = %s
+                """,
+                (
+                    body.encrypted_title,
+                    body.encrypted_payload,
+                    body.init_vector,
+                    body.title_iv,
+                    body.salt,
+                    body.payload_mac,
+                    1 if has_files and db.is_sqlite() else has_files,
+                    str(vault_id),
+                    _hash_token(body.owner_access_token.strip()),
+                ),
+            )
+            if cur.rowcount != 1:
+                raise HTTPException(status_code=404, detail="Vault not found or access denied")
+            if paid_session:
+                cur.execute(
+                    """
+                    INSERT INTO payments (session_id, purpose, vault_id, consumed_at)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (paid_session, "seal_fees", str(vault_id), _sql_val(now)),
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_unique_violation(exc):
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="That payment was already used. Pay again to add files.",
+            ) from exc
+        logger.exception("Vault update failed")
+        raise HTTPException(status_code=500, detail="Unable to update vault") from exc
+    return {"vault_id": str(vault_id), "message": "Vault updated. The new seal replaced the old one."}
+
+
+@app.post("/api/vaults/{vault_id}/delete")
+def delete_vault(vault_id: UUID, body: OwnerAccessRequest) -> dict:
+    vault = _owner_vault(vault_id, body.owner_access_token)
+    db.execute(
+        "DELETE FROM vaults WHERE id = %s AND owner_access_token_hash = %s",
+        (str(vault["id"]), _hash_token(body.owner_access_token.strip())),
+    )
+    return {"vault_id": str(vault_id), "message": "Vault deleted."}
 
 
 @app.post("/api/vaults/payload/{vault_id}", response_model=VaultPayloadResponse)

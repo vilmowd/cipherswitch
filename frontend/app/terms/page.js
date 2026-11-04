@@ -26,7 +26,9 @@ export default function TermsPage() {
           dashboard code, and the check-in link. The dashboard opens with that
           code, which is emailed to you. Your email address is not the code.
           Share the passphrase with a recipient yourself. CipherSwitch does not
-          send the passphrase by email and cannot reset it.
+          send the passphrase by email and cannot reset it. With the dashboard
+          code you can delete the vault, or replace the sealed message and
+          files. Deleting cannot be undone.
         </p>
         <p>
           You confirm that you have the right to store and, if the vault

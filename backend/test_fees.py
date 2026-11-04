@@ -82,6 +82,11 @@ class FeeRules(unittest.TestCase):
         parsed = billing.decode_fees(billing.encode_fees(fees))
         self.assertEqual(parsed, {"recipients": 300, "files": 300})
 
+    def test_editing_charges_for_files_only_when_the_vault_had_none(self):
+        self.assertFalse(billing.edit_needs_file_fee(already_has_files=True, has_files=True))
+        self.assertFalse(billing.edit_needs_file_fee(already_has_files=False, has_files=False))
+        self.assertTrue(billing.edit_needs_file_fee(already_has_files=False, has_files=True))
+
     def test_large_ciphertext_counts_as_files(self):
         small = SimpleNamespace(has_attachments=False, encrypted_payload="a" * 100)
         large = SimpleNamespace(has_attachments=False, encrypted_payload="a" * 24_001)

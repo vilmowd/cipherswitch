@@ -101,6 +101,10 @@ def travel_cents() -> int:
     return _capped_cents("TRAVEL_PRICE_CENTS", 500)
 
 
+def edit_needs_file_fee(*, already_has_files: bool, has_files: bool) -> bool:
+    return has_files and not already_has_files
+
+
 def payload_has_files(body) -> bool:
     if getattr(body, "has_attachments", False):
         return True
@@ -166,6 +170,7 @@ def create_checkout(
     purpose: str,
     vault_id: Optional[str] = None,
     fees: Optional[list[Fee]] = None,
+    return_to: str = "create",
 ) -> str:
     secret = _secret()
     if not secret:
@@ -187,8 +192,12 @@ def create_checkout(
     elif purpose == "seal_fees":
         if not line_fees:
             raise HTTPException(status_code=400, detail="Nothing to pay for.")
-        success = f"{frontend}/create?paid={{CHECKOUT_SESSION_ID}}"
-        cancel = f"{frontend}/create?canceled=1"
+        if return_to == "edit":
+            success = f"{frontend}/dashboard?edit_paid={{CHECKOUT_SESSION_ID}}"
+            cancel = f"{frontend}/dashboard?edit_canceled=1"
+        else:
+            success = f"{frontend}/create?paid={{CHECKOUT_SESSION_ID}}"
+            cancel = f"{frontend}/create?canceled=1"
     else:
         raise HTTPException(status_code=400, detail="Unknown checkout.")
     try:
