@@ -44,6 +44,39 @@ class CreateAnswersTheBrowser(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.headers.get("access-control-allow-origin"), "https://cipherswitch.pro")
 
+    def test_a_contact_message_is_emailed_to_the_configured_address(self):
+        with TestClient(main.app) as client:
+            with patch.dict(os.environ, {"CONTACT_EMAIL": "owner@example.com"}):
+                with patch("email_service._send", return_value=True) as send:
+                    response = client.post(
+                        "/api/contact",
+                        json={
+                            "first_name": "Ada",
+                            "last_name": "Lovelace",
+                            "email": "ada@example.com",
+                            "message": "Hello there",
+                        },
+                        headers={"Origin": "https://cipherswitch.pro"},
+                    )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(send.call_args.kwargs["to"], "owner@example.com")
+        self.assertEqual(send.call_args.kwargs["reply_to"], "ada@example.com")
+        self.assertIn("Hello there", send.call_args.kwargs["text"])
+
+    def test_contact_without_an_inbox_is_refused(self):
+        with TestClient(main.app) as client:
+            with patch.dict(os.environ, {"CONTACT_EMAIL": ""}):
+                response = client.post(
+                    "/api/contact",
+                    json={
+                        "first_name": "Ada",
+                        "last_name": "Lovelace",
+                        "email": "ada@example.com",
+                        "message": "Hello there",
+                    },
+                )
+        self.assertEqual(response.status_code, 503)
+
     def test_chrome_private_network_check_is_allowed(self):
         with TestClient(main.app) as client:
             response = client.options(

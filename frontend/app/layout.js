@@ -7,6 +7,9 @@ export const metadata = {
   description:
     "A private digital time capsule. Encrypt secrets in your browser. They open only if you go silent.",
   robots: { index: true, follow: true },
+  verification: {
+    google: "8IAH4DAVLgJAk1q1e3_gEYDjcje8_Q2vzN51PE5C1MY",
+  },
   appleWebApp: {
     capable: true,
     title: "CipherSwitch",
@@ -68,6 +71,9 @@ export default function RootLayout({ children }) {
                 </a>
                 <a href="/privacy" className="underline-offset-4 hover:underline">
                   Privacy policy
+                </a>
+                <a href="/contact" className="underline-offset-4 hover:underline">
+                  Contact
                 </a>
                 <AccessibilityWidget />
               </nav>

@@ -36,6 +36,7 @@ def _send(
     html: str,
     text: str,
     attachments: Optional[list[dict[str, str]]] = None,
+    reply_to: Optional[str] = None,
 ) -> bool:
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set — skip email to=%s subject=%s", to, subject)
@@ -47,6 +48,8 @@ def _send(
         "html": html,
         "text": text,
     }
+    if reply_to:
+        payload["reply_to"] = reply_to
     if attachments:
         payload["attachments"] = attachments
 
@@ -364,6 +367,39 @@ def send_vault_triggered_owner(
         subject="CipherSwitch — vault triggered",
         html=html,
         text=f"Vault {vault_id} triggered.\n",
+    )
+
+
+def contact_inbox() -> str:
+    return os.getenv("CONTACT_EMAIL", "").strip()
+
+
+def _one_line(value: str) -> str:
+    return " ".join(str(value).replace("\r", " ").replace("\n", " ").split())
+
+
+def send_contact_message(*, first_name: str, last_name: str, email: str, message: str) -> bool:
+    """Email a contact form to CONTACT_EMAIL. The message is not stored."""
+    inbox = contact_inbox()
+    if "@" not in inbox:
+        logger.warning("CONTACT_EMAIL is not set — contact form was not sent")
+        return False
+    sender = _one_line(email)
+    name = f"{_one_line(first_name)} {_one_line(last_name)}".strip()
+    body = str(message).strip()
+    html = _layout(
+        "New contact message",
+        f"""
+        <p><strong>{_e(name)}</strong> wrote from <strong>{_e(sender)}</strong>.</p>
+        <p style="white-space:pre-wrap;color:#1a1f2c;">{_e(body)}</p>
+        """,
+    )
+    return _send(
+        to=inbox,
+        subject=f"CipherSwitch contact from {name}",
+        html=html,
+        text=f"From: {name} <{sender}>\n\n{body}\n",
+        reply_to=sender,
     )
 
 

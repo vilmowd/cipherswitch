@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Literal, Optional
@@ -528,6 +529,44 @@ class QuoteRequest(BaseModel):
     owner_email: EmailStr
 
 
+class ContactRequest(BaseModel):
+    first_name: str = Field(..., min_length=1, max_length=80)
+    last_name: str = Field(..., min_length=1, max_length=80)
+    email: EmailStr
+    message: str = Field(..., min_length=1, max_length=4000)
+
+    @field_validator("first_name", "last_name", "message")
+    @classmethod
+    def required_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("This field is required.")
+        return cleaned
+
+
+_contact_by_email: dict[str, list[float]] = {}
+_contact_all: list[float] = []
+
+
+def _contact_allowed(email: str) -> bool:
+    """Cap how often the public form can email the inbox."""
+    now = time.monotonic()
+    window = 60 * 60
+    recent = [stamp for stamp in _contact_all if now - stamp < window]
+    own = [stamp for stamp in _contact_by_email.get(email, []) if now - stamp < window]
+    if len(recent) >= 30 or len(own) >= 3:
+        _contact_all[:] = recent
+        _contact_by_email[email] = own
+        return False
+    recent.append(now)
+    own.append(now)
+    _contact_all[:] = recent
+    _contact_by_email[email] = own
+    if len(_contact_by_email) > 500:
+        _contact_by_email.clear()
+    return True
+
+
 @app.get("/api/billing")
 def billing_info() -> dict:
     return {
@@ -536,6 +575,28 @@ def billing_info() -> dict:
         "extra_label": billing.extra_vault_label(),
         "label": billing.catalog()["travel"]["label"],
     }
+
+
+@app.post("/api/contact")
+def contact(body: ContactRequest) -> dict:
+    sender = str(body.email).strip().lower()
+    if not _contact_allowed(sender):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Please wait a while before sending another message.",
+        )
+    sent = email_service.send_contact_message(
+        first_name=body.first_name,
+        last_name=body.last_name,
+        email=sender,
+        message=body.message,
+    )
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The contact form is not available right now.",
+        )
+    return {"ok": True}
 
 
 @app.post("/api/billing/quote")
