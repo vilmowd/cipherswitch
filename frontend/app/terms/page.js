@@ -72,6 +72,9 @@ export default function TermsPage() {
         <p>You may not use CipherSwitch to:</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>break the law, or help someone else break the law</li>
+          <li>store, release, or distribute stolen goods, including a leaked game, leaked software, or any other material you do not have the right to share</li>
+          <li>store, release, or distribute illegal material</li>
+          <li>use a vault for any other unlawful activity</li>
           <li>distribute malware, including a harmful file disguised as something important, or try to break into systems you do not control</li>
           <li>defraud, extort, stalk, or threaten anyone</li>
           <li>send material to a person who did not need to be involved, or misuse their email address</li>
@@ -125,6 +128,15 @@ export default function TermsPage() {
         </p>
       </LegalSection>
       <LegalSection title="Your responsibility for what you release">
+        <p>
+          You are responsible for your own actions on CipherSwitch. That
+          includes what you put in a vault, who you name, and what is released
+          if the vault triggers. You are responsible for making sure that use
+          is lawful. CipherSwitch does not review the message or the files
+          before they are stored, and a vault is not a license to distribute
+          stolen goods, illegal material, or anything else you are not allowed
+          to share.
+        </p>
         <p>
           You will cover the operator for claims, losses, and reasonable legal
           costs that come from the contents you store, the people you name, or
